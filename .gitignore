@@ -1,0 +1,27 @@
+# Environment
+.venv/
+.env
+.env.local
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Logs
+*.log
+
+# Database
+app.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.temp
