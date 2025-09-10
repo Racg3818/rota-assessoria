@@ -441,6 +441,106 @@ def _receita_escritorio_mes_atual_via_alocacoes():
     return total
 
 
+def _receita_passiva_ultimo_mes():
+    """
+    Calcula a receita passiva do último mês baseada nas categorias
+    salvas em user_prefs com key='recorrencia_produtos'.
+    """
+    if not supabase:
+        return 0.0
+    
+    from datetime import datetime, timedelta
+    import json
+    
+    # Obter mês anterior
+    hoje = datetime.today()
+    primeiro_dia_mes_atual = hoje.replace(day=1)
+    ultimo_mes = primeiro_dia_mes_atual - timedelta(days=1)
+    mes_anterior = ultimo_mes.strftime("%Y-%m")
+    
+    current_app.logger.info("RECEITA_PASSIVA: Calculando para mês %s", mes_anterior)
+    
+    # Buscar categorias salvas nas preferências do usuário
+    uid = _current_user_id()
+    if not uid:
+        current_app.logger.warning("RECEITA_PASSIVA: Sem user_id válido")
+        return 0.0
+    
+    try:
+        # Buscar user_prefs com key='recorrencia_produtos'
+        res_prefs = (supabase.table("user_prefs")
+                    .select("value")
+                    .eq("user_id", uid)
+                    .eq("key", "recorrencia_produtos")
+                    .limit(1)
+                    .execute())
+        
+        if not res_prefs.data:
+            current_app.logger.info("RECEITA_PASSIVA: Nenhuma preferência salva")
+            return 0.0
+        
+        categorias_value = res_prefs.data[0].get("value")
+        if isinstance(categorias_value, str):
+            try:
+                categorias = json.loads(categorias_value)
+            except:
+                categorias = []
+        elif isinstance(categorias_value, list):
+            categorias = categorias_value
+        else:
+            categorias = []
+        
+        if not categorias:
+            current_app.logger.info("RECEITA_PASSIVA: Lista de categorias vazia")
+            return 0.0
+        
+        current_app.logger.info("RECEITA_PASSIVA: Categorias configuradas: %s", categorias)
+        
+        # Buscar receitas do mês anterior filtradas pelas categorias
+        # Assumindo que existe uma tabela 'receita_itens' com categoria
+        total_passiva = 0.0
+        
+        try:
+            res_receitas = (supabase.table("receita_itens")
+                          .select("comissao_escritorio, categoria")
+                          .eq("user_id", uid)
+                          .like("data_ref", f"{mes_anterior}%")
+                          .execute())
+            
+            for receita in res_receitas.data or []:
+                categoria = receita.get("categoria", "")
+                if categoria in categorias:
+                    valor = _to_float(receita.get("comissao_escritorio"))
+                    total_passiva += valor
+                    current_app.logger.debug("RECEITA_PASSIVA: +%.2f de categoria %s", valor, categoria)
+        
+        except Exception as e:
+            current_app.logger.error("RECEITA_PASSIVA: Erro ao buscar receitas: %s", e)
+        
+        current_app.logger.info("RECEITA_PASSIVA: Total calculado: %.2f", total_passiva)
+        return total_passiva
+        
+    except Exception as e:
+        current_app.logger.error("RECEITA_PASSIVA: Erro geral: %s", e)
+        return 0.0
+
+
+def _receita_escritorio_total_mes():
+    """
+    Calcula a receita total do escritório no mês atual:
+    Receita Ativa (alocações) + Receita Passiva (último mês, categorias filtradas)
+    """
+    receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
+    receita_passiva = _receita_passiva_ultimo_mes()
+    
+    total = receita_ativa + receita_passiva
+    
+    current_app.logger.info("RECEITA_TOTAL: Ativa=%.2f + Passiva=%.2f = Total=%.2f", 
+                           receita_ativa, receita_passiva, total)
+    
+    return total
+
+
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
     % Penetração de base no mês vigente.
@@ -566,7 +666,7 @@ def debug():
 @login_required
 def index():
     mes, meta = _meta_do_mes()
-    receita_total_mes = _receita_escritorio_mes_atual_via_alocacoes()
+    receita_total_mes = _receita_escritorio_total_mes()
 
     # Todas as leituras abaixo já aplicam filtro por user_id
     clientes = _fetch_clientes()
@@ -639,4 +739,7 @@ def index():
         penetracao_pct=penetracao_pct,
         penetracao_ativos=penetracao_ativos,
         penetracao_base=penetracao_base,
+        # Detalhamento da receita (ativa + passiva)
+        receita_ativa_mes=_receita_escritorio_mes_atual_via_alocacoes(),
+        receita_passiva_mes=_receita_passiva_ultimo_mes(),
     )
