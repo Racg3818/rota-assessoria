@@ -1,0 +1,24 @@
+<div class="border rounded-xl p-4 bg-white">
+  <h3 class="font-medium mb-3">Receita recorrente mensal — Assessor</h3>
+  {% if not produto_presente %}
+    <p class="text-xs text-orange-600 mb-2">
+      Observação: coluna <code>produto</code> não encontrada. O cálculo usa todos os itens (sem filtro).
+    </p>
+  {% endif %}
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Mês</th>
+        <th class="text-right px-3 py-2">Assessor (valor_liquido)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in hist_recorrente %}
+      <tr class="border-t">
+        <td class="px-3 py-2">{{ r.mes }}</td>
+        <td class="px-3 py-2 text-right">{{ r.assessor|brl }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

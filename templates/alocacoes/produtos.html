@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Produtos — Rota Assessoria{% endblock %}
+{% block subtitle %}Produtos cadastrados{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Produtos</h2>
+  <div class="flex items-center gap-2">
+    {% if produtos and produtos|length > 0 %}
+      <form method="POST" action="{{ url_for('alocacoes.produto_excluir_todos') }}"
+            onsubmit="return confirm('Tem certeza que deseja excluir TODOS os produtos? Esta ação não pode ser desfeita.');">
+        <button class="px-3 py-2 rounded border border-red-200 text-red-700 hover:bg-red-50 text-sm">
+          Excluir todos
+        </button>
+      </form>
+    {% endif %}
+    <a href="{{ url_for('alocacoes.produto_novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">
+      Novo produto
+    </a>
+  </div>
+</div>
+
+<div class="border rounded-xl overflow-hidden bg-white">
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Nome</th>
+        <th class="text-left px-3 py-2">Classe</th>
+        <th class="text-left px-3 py-2">ROA (%)</th>
+        <th class="text-left px-3 py-2">Campanha</th>
+        <th class="text-left px-3 py-2 w-40">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if produtos and produtos|length > 0 %}
+        {% for p in produtos %}
+        <tr class="border-t">
+          <td class="px-3 py-2">{{ p.nome }}</td>
+          <td class="px-3 py-2">{{ p.classe or '—' }}</td>
+          <td class="px-3 py-2">
+            {% if p.roa_pct is not none %}{{ '%.2f'|format(p.roa_pct) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2">
+            {% if p.em_campanha %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-emerald-700 bg-emerald-50 border border-emerald-200">
+                Sim{% if p.campanha_mes %} — {{ p.campanha_mes }}{% endif %}
+              </span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-gray-600 bg-gray-50 border">Não</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-2">
+              <a href="{{ url_for('alocacoes.produto_editar', id=p.id) }}"
+                 class="px-2 py-1 rounded border text-blue-700 border-blue-200 hover:bg-blue-50">
+                Editar
+              </a>
+              <form method="POST" action="{{ url_for('alocacoes.produto_excluir', id=p.id) }}"
+                    onsubmit="return confirm('Excluir o produto &quot;{{ p.nome }}&quot;? Esta ação não pode ser desfeita.');">
+                <button type="submit"
+                        class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50">
+                  Excluir
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="border-t">
+          <td class="px-3 py-4 text-gray-500" colspan="5">Nenhum produto cadastrado.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

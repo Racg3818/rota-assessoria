@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Clientes — Rota Assessoria{% endblock %}
+{% block subtitle %}Lista de clientes{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Clientes</h2>
+  <div class="flex items-center gap-2">
+    <a href="{{ url_for('clientes.importar_em_massa') }}"
+       class="px-3 py-2 rounded border text-sm hover:bg-gray-50">
+      Importar (.csv)
+    </a>
+    <a href="{{ url_for('clientes.baixar_template_clientes') }}"
+       class="px-3 py-2 rounded border text-sm hover:bg-gray-50">
+      Baixar template
+    </a>
+    <a href="/clientes/novo"
+       class="px-3 py-2 rounded bg-gray-900 text-white text-sm">
+      Novo cliente
+    </a>
+  </div>
+</div>
+
+<!-- Filtros -->
+<form method="get" class="mb-4">
+  <div class="flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Código (XP/MB)</label>
+      <input
+        name="q"
+        value="{{ filtros.q|default('', true) }}"
+        placeholder="Ex.: 4021321"
+        class="border rounded px-2 py-1 text-sm"
+      />
+    </div>
+
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Modelo</label>
+      <select name="modelo" class="border rounded px-2 py-1 text-sm">
+        {% set _modelo = filtros.modelo|default('', true) %}
+        <option value="" {{ 'selected' if _modelo == '' else '' }}>Todos</option>
+        <option value="TRADICIONAL" {{ 'selected' if _modelo == 'TRADICIONAL' else '' }}>TRADICIONAL</option>
+        <option value="ASSET" {{ 'selected' if _modelo == 'ASSET' else '' }}>ASSET</option>
+        <option value="FEE_BASED" {{ 'selected' if _modelo == 'FEE_BASED' else '' }}>FEE_BASED</option>
+        <option value="FEE_BASED_SEM_RV" {{ 'selected' if _modelo == 'FEE_BASED_SEM_RV' else '' }}>FEE_BASED_SEM_RV</option>
+      </select>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button type="submit" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Filtrar</button>
+      {% if filtros.q|default('', true) or filtros.modelo|default('', true) %}
+        <a href="{{ url_for('clientes.index') }}" class="px-3 py-2 rounded border text-sm">Limpar</a>
+      {% endif %}
+    </div>
+  </div>
+</form>
+
+<div class="border rounded-xl overflow-hidden bg-white">
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Nome</th>
+        <th class="text-left px-3 py-2">Código XP</th>
+        <th class="text-left px-3 py-2">Código MB</th>
+        <th class="text-left px-3 py-2">Modelo</th>
+        <th class="text-left px-3 py-2">Repasse</th>
+        <th class="text-left px-3 py-2">NET Total</th>
+        <th class="text-left px-3 py-2 w-36">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if clientes %}
+        {% for c in clientes %}
+        <tr class="border-t">
+          <td class="px-3 py-2">{{ c.nome }}</td>
+          <td class="px-3 py-2">{{ c.codigo_xp or '—' }}</td>
+          <td class="px-3 py-2">{{ c.codigo_mb or '—' }}</td>
+          <td class="px-3 py-2">{{ c.modelo }}</td>
+          <td class="px-3 py-2">{{ c.repasse }}%</td>
+          <td class="px-3 py-2">{{ c.net_total | brl }}</td>
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-2">
+              <a href="{{ url_for('clientes.editar', id=c.id) }}"
+                 class="px-2 py-1 rounded border text-blue-700 border-blue-200 hover:bg-blue-50">
+                Editar
+              </a>
+              <form method="POST" action="{{ url_for('clientes.excluir', id=c.id) }}"
+                    onsubmit="return confirm('Excluir o cliente &quot;{{ c.nome }}&quot;? Essa ação não pode ser desfeita.');">
+                <button type="submit"
+                        class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50">
+                  Excluir
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="border-t">
+          <td class="px-3 py-6 text-gray-500" colspan="7">
+            <div class="flex items-center justify-between">
+              <span>Nenhum cliente cadastrado.</span>              
+            </div>
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

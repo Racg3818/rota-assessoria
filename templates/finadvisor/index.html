@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}FinAdvisor — Rota Assessoria{% endblock %}
+{% block subtitle %}Séries mês a mês (valores do FinAdvisor){% endblock %}
+{% block content %}
+
+<!-- meta / status -->
+<div class="mb-4 text-xs text-gray-500 flex items-center gap-3">
+  <span>Fonte: <span class="px-2 py-1 rounded border">{{ source }}</span></span>
+  <span>View: <span class="px-2 py-1 rounded border">{{ view_version }}</span></span>
+  {% if error_msg %}
+    <span class="text-red-600">Erro Supabase: {{ error_msg }}</span>
+  {% endif %}
+</div>
+
+<!-- filtro por mês -->
+<form method="get" class="mb-4">
+  <div class="flex flex-wrap items-end gap-3">
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Mês foco (YYYY-MM)</label>
+      <input name="mes" value="{{ mes }}" class="border rounded px-3 py-2" />
+    </div>
+    <div>
+      <label class="block text-xs text-gray-600 mb-1">Itens por página</label>
+      <select name="page_size" class="border rounded px-3 py-2">
+        {% for opt in [25,50,100,200,500] %}
+          <option value="{{ opt }}" {{ 'selected' if page_size==opt else '' }}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Filtrar</button>
+
+    <!-- CTA destacado -->
+    <a href="{{ url_for('finadvisor.corrigir_codigos_list') }}"
+       class="ml-auto inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm shadow hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <!-- ícone simples -->
+      <span class="rounded bg-white/20 px-1.5 py-0.5 text-xs">★</span>
+      Corrigir códigos (cliente_codigo contendo meu código XP)
+    </a>
+  </div>
+</form>
+
+<!-- agregados mês a mês -->
+<div class="border rounded-xl p-4 bg-white mb-6 overflow-x-auto">
+  <h3 class="font-medium mb-3">Receita por Modelo (mês a mês)</h3>
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Mês</th>
+        {% for m in modelos %}
+          <th class="text-right px-3 py-2">{{ m }}</th>
+        {% endfor %}
+        <th class="text-right px-3 py-2">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in series %}
+      <tr class="border-t">
+        <td class="px-3 py-2">{{ row.mes }}</td>
+        {% for m in modelos %}
+          <td class="px-3 py-2 text-right">{{ (row[m] or 0)|brl }}</td>
+        {% endfor %}
+        <td class="px-3 py-2 text-right">{{ (row.total or 0)|brl }}</td>
+      </tr>
+      {% endfor %}
+      {% if not series %}
+        <tr class="border-t"><td colspan="{{ (modelos|length)+2 }}" class="px-3 py-3 text-gray-500">Sem dados</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+
+<!-- Tabela paginada com todas as linhas de receita_itens do mês -->
+<div class="border rounded-xl p-4 bg-white overflow-x-auto">
+  <div class="flex items-center justify-between mb-3 text-sm">
+    <div class="text-gray-600">
+      Itens exibidos /
+      <span class="font-medium">{{ rows|length }}</span>
+      —
+      total <span class="font-medium">{{ total }}</span>
+    </div>
+    <!-- paginação topo -->
+    <div class="flex items-center gap-2">
+      {% set prev_page = page - 1 %}
+      {% set next_page = page + 1 %}
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=1, page_size=page_size) }}"
+         class="px-2 py-1 rounded border text-xs hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">« Primeiro</a>
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=prev_page, page_size=page_size) }}"
+         class="px-2 py-1 rounded border text-xs hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">‹ Anterior</a>
+      <span class="px-2 py-1 text-xs text-gray-600">pág. <strong>{{ page }}</strong></span>
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=next_page, page_size=page_size) }}"
+         class="px-2 py-1 rounded border text-xs hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if (page*page_size) >= total else '' }}">Próxima ›</a>
+    </div>
+  </div>
+
+  <h3 class="font-medium mb-2">Registros gravados (pós-importação)</h3>
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Mês</th>
+        <th class="text-left px-3 py-2">Cód. Cliente</th>
+        <th class="text-left px-3 py-2">Cliente</th>
+        <th class="text-left px-3 py-2">Origem</th>
+        <th class="text-left px-3 py-2">Família</th>
+        <th class="text-left px-3 py-2">Produto</th>
+        <th class="text-left px-3 py-2">Categoria</th>
+        <th class="text-right px-3 py-2">Valor Líquido</th>
+        <th class="text-right px-3 py-2">Comissão Escritório</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if rows %}
+        {% for r in rows %}
+          <tr class="border-t">
+            <td class="px-3 py-2">{{ r.data_ref }}</td>
+            <td class="px-3 py-2">{{ r.cliente_codigo or '—' }}</td>
+            <td class="px-3 py-2">{{ r.cliente_nome or '—' }}</td>
+            <td class="px-3 py-2">{{ r.origem or '—' }}</td>
+            <td class="px-3 py-2">{{ r.familia or '—' }}</td>
+            <td class="px-3 py-2">{{ r.produto or '—' }}</td>
+            <td class="px-3 py-2">{{ r.detalhe or '—' }}</td>
+            <td class="px-3 py-2 text-right">{{ (r.valor_liquido or 0)|brl }}</td>
+            <td class="px-3 py-2 text-right">{{ (r.comissao_escritorio or 0)|brl }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="border-t">
+          <td colspan="9" class="px-3 py-4 text-gray-500">Sem dados nesta página.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- paginação rodapé -->
+  <div class="flex items-center justify-between mt-4">
+    <form method="get" class="flex items-center gap-2">
+      <input type="hidden" name="mes" value="{{ mes }}">
+      <label class="text-xs text-gray-600">Itens por página</label>
+      <select name="page_size" class="border rounded px-2 py-1 text-sm" onchange="this.form.submit()">
+        {% for opt in [25,50,100,200,500] %}
+          <option value="{{ opt }}" {{ 'selected' if page_size==opt else '' }}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="page" value="1">
+      <noscript><button class="px-2 py-1 rounded border text-sm">Aplicar</button></noscript>
+    </form>
+
+    <div class="flex items-center gap-2">
+      {% set prev_page = page - 1 %}
+      {% set next_page = page + 1 %}
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=1, page_size=page_size) }}"
+         class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">« Primeiro</a>
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=prev_page, page_size=page_size) }}"
+         class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">‹ Anterior</a>
+      <span class="px-2 text-sm text-gray-600">pág. <strong>{{ page }}</strong></span>
+      <a href="{{ url_for('finadvisor.index', mes=mes, page=next_page, page_size=page_size) }}"
+         class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if (page*page_size) >= total else '' }}">Próxima ›</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

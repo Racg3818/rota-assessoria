@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Alocações — Rota Assessoria{% endblock %}
+{% block subtitle %}Resumo e listagem das alocações{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Alocações</h2>
+  <div class="flex gap-2">
+    <a href="{{ url_for('alocacoes.produtos') }}" class="px-3 py-2 rounded border text-sm">Produtos</a>
+    <a href="{{ url_for('alocacoes.novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Nova alocação</a>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Total alocado</div>
+    <div class="text-2xl font-semibold">{{ total_geral|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Receita Escritório (total)</div>
+    <div class="text-2xl font-semibold">{{ total_rec_escritorio|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Receita Assessor (total)</div>
+    <div class="text-2xl font-semibold">{{ total_rec_assessor|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500 mb-2">Totais por produto</div>
+    {% if totais_produtos and totais_produtos|length > 0 %}
+      <ul class="text-sm space-y-1 max-h-44 overflow-auto pr-1">
+        {% for item in totais_produtos %}
+          <li class="flex justify-between">
+            <span class="truncate">{{ item.nome }}</span>
+            <span class="font-medium">{{ item.valor|brl }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="text-sm text-gray-500">—</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500 mb-2">Totais por cliente</div>
+    {% if totais_clientes and totais_clientes|length > 0 %}
+      <ul class="text-sm space-y-1 max-h-44 overflow-auto pr-1">
+        {% for item in totais_clientes %}
+          <li class="flex justify-between">
+            <span class="truncate">{{ item.nome }}</span>
+            <span class="font-medium">{{ item.valor|brl }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="text-sm text-gray-500">—</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Tabela de alocações -->
+<div class="border rounded-xl overflow-hidden bg-white">
+  <table class="min-w-full text-sm">
+    <thead class="bg-gray-50 text-gray-600">
+      <tr>
+        <th class="text-left px-3 py-2">Cliente</th>
+        <th class="text-left px-3 py-2">Produto</th>
+        <th class="text-left px-3 py-2">Classe</th>
+        <th class="text-left px-3 py-2">Valor (R$)</th>
+        <th class="text-left px-3 py-2">ROA (%)</th>
+        <th class="text-left px-3 py-2">Receita Escritório</th>
+        <th class="text-left px-3 py-2">Receita Assessor</th>
+        <th class="text-left px-3 py-2">Campanha</th>
+        <th class="text-left px-3 py-2">Efetivada?</th>
+        <th class="text-left px-3 py-2">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if alocacoes and alocacoes|length > 0 %}
+        {% for a in alocacoes %}
+        <tr class="border-t">
+          <td class="px-3 py-2">{{ a.cliente.nome }}</td>
+          <td class="px-3 py-2">{{ a.produto.nome }}</td>
+          <td class="px-3 py-2">{{ a.produto.classe or '—' }}</td>
+          <td class="px-3 py-2">{{ a.valor|brl }}</td>
+          <td class="px-3 py-2">
+            {% if a.produto.roa_pct is not none %}{{ '%.2f'|format(a.produto.roa_pct) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2">{{ a.receita_escritorio|brl }}</td>
+          <td class="px-3 py-2">{{ a.receita_assessor|brl }}</td>
+          <td class="px-3 py-2">
+            {% if a.produto.em_campanha %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-emerald-700 bg-emerald-50 border border-emerald-200">
+                Sim{% if a.produto.campanha_mes %} — {{ a.produto.campanha_mes }}{% endif %}
+              </span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-gray-600 bg-gray-50 border">Não</span>
+            {% endif %}
+          </td>
+
+          <!-- Checkbox Efetivada -->
+          <td class="px-3 py-2">
+            <form method="post"
+                  action="{{ url_for('alocacoes.efetivar', aloc_id=a.id, cliente_id=cliente_id_filter or '') }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <label class="inline-flex items-center gap-2">
+                <input type="checkbox" name="efetivada"
+                       {% if a.efetivada %}checked{% endif %}
+                       onchange="this.form.submit()"
+                       class="rounded border-gray-300">
+                <span class="text-xs text-gray-700">confirmada</span>
+              </label>
+            </form>
+          </td>
+
+          <!-- Ações básicas -->
+          <td class="px-3 py-2">
+            <div class="flex gap-2">
+              <a href="{{ url_for('alocacoes.editar', aloc_id=a.id) }}"
+                 class="px-2 py-1 text-xs rounded border">Editar</a>
+              <form method="post" action="{{ url_for('alocacoes.excluir', aloc_id=a.id) }}"
+                    onsubmit="return confirm('Excluir esta alocação?')">
+                <button class="px-2 py-1 text-xs rounded border text-red-600">Excluir</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="border-t">
+          <td class="px-3 py-4 text-gray-500" colspan="10">Nenhuma alocação cadastrada.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login — Rota Assessoria</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>html,body{font-family:Inter,ui-sans-serif,system-ui}</style>
+  </head>
+  <body class="bg-gray-50 min-h-screen grid place-items-center p-6">
+    <form method="post" class="w-full max-w-md space-y-4 bg-white border rounded-2xl p-6 shadow-sm">
+      <h1 class="text-xl font-semibold">Entrar — Rota Assessoria</h1>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="px-4 py-2 rounded border {{ 'border-red-300 bg-red-50 text-red-700' if category=='error' else 'border-emerald-300 bg-emerald-50 text-emerald-700' }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="space-y-2">
+        <label class="block text-sm">Nome</label>
+        <input name="nome" class="border rounded-lg p-2 w-full" placeholder="Seu nome" required />
+      </div>
+
+      <div class="space-y-2">
+        <label class="block text-sm">E-mail corporativo</label>
+        <input name="email" type="email" class="border rounded-lg p-2 w-full" placeholder="seu.nome@svninvest.com.br" required />
+        <p class="text-xs text-gray-500">Acesso permitido apenas com e-mail @svninvest.com.br</p>
+      </div>
+	  
+      <div class="space-y-2">
+        <label class="block text-sm">Código XP (apenas dígitos)</label>
+        <input id="codigo_xp" name="codigo_xp" inputmode="numeric" pattern="\d*" class="border rounded-lg p-2 w-full" placeholder="Ex.: 1234567" required />
+      </div>
+
+      <!-- Campo senha escondido por padrão -->
+      <div id="senha-wrapper" class="space-y-2 hidden">
+        <label for="senha" class="block text-sm text-gray-600">Senha do administrador</label>
+        <input type="password" id="senha" name="senha" class="border rounded-lg p-2 w-full" />
+      </div>
+
+      <button class="w-full border rounded-lg p-2 bg-gray-900 text-white">Entrar</button>
+    </form>
+
+    <script>
+      const codigoInput = document.getElementById("codigo_xp");
+      const senhaWrapper = document.getElementById("senha-wrapper");
+
+      codigoInput.addEventListener("input", function () {
+        if (codigoInput.value.trim() === "69922") {
+          senhaWrapper.classList.remove("hidden");
+        } else {
+          senhaWrapper.classList.add("hidden");
+        }
+      });
+    </script>
+  </body>
+</html>

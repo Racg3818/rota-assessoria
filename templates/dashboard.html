@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Rota Assessoria{% endblock %}
+{% block subtitle %}Resumo do mês {{ mes }}{% endblock %}
+{% block content %}
+
+{% set modelos = ['TRADICIONAL','ASSET','FEE_BASED','FEE_BASED_SEM_RV'] %}
+
+<!-- Formulário de meta do mês -->
+<form action="{{ url_for('dashboard.salvar_meta') }}"
+      method="POST"
+      class="mb-6 flex flex-col md:flex-row md:items-end gap-3">
+  <div>
+    <label class="block text-sm text-gray-600">Mês (YYYY-MM)</label>
+    <input name="mes" value="{{ mes }}" class="border rounded px-3 py-2" />
+  </div>
+  <div>
+    <label class="block text-sm text-gray-600">Meta de receita do escritório</label>
+    <input name="meta_receita" type="number" step="0.01" value="{{ meta or 0 }}" class="border rounded px-3 py-2" />
+  </div>
+  <button class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Salvar meta</button>
+</form>
+
+
+<!-- KPIs principais -->
+<div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Receita do escritório (mês)</div>
+    <div class="text-2xl font-semibold">{{ receita_total|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Clientes cadastrados</div>
+    <div class="text-2xl font-semibold">{{ clientes|length }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Mediana do NET (assessor)</div>
+    <div class="text-2xl font-semibold">{{ mediana_net|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Mediana receita por cliente — {{ mes[:4] }}</div>
+    <div class="text-2xl font-semibold">{{ mediana_receita_escritorio_ano|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">% Penetração de base (efetivadas)</div>
+    <div class="text-2xl font-semibold">
+      {{ (penetracao_pct or 0)|round(1) }}%
+    </div>
+    <div class="text-xs text-gray-500 mt-1">
+      {{ penetracao_ativos or 0 }}/{{ penetracao_base or 0 }} clientes com alocação ({{ mes }}, Campanha=Sim, Efetivada=Sim)
+    </div>
+  </div>
+</div>
+
+<!-- Meta x Atingido -->
+<div class="grid grid-cols-1 gap-6 mt-6">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center justify-between">
+      <h3 class="font-medium">Meta de Receita</h3>
+      <span class="text-sm text-gray-500">Mês {{ mes }}</span>
+    </div>
+    <div class="mt-3">
+      {% set pct = (receita_total / meta * 100) if meta else 0 %}
+      {% set pct_clamped = 100 if pct>100 else (0 if pct<0 else pct) %}
+      <div class="w-full bg-gray-100 rounded h-3">
+        <div class="h-3 bg-emerald-500 rounded" style="width: {{ pct_clamped }}%"></div>
+      </div>
+      <div class="text-sm text-gray-600 mt-2">
+        Meta: {{ (meta or 0)|brl }} — Atingido: {{ '%.1f'|format(pct if meta else 0) }}%
+        {% if not meta or meta == 0 %}
+          <span class="text-xs text-gray-400">(defina a meta para ativar a barra)</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NET por modelo -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+  {% for k in modelos %}
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">{{ k }}</div>
+    <div class="text-2xl font-semibold">{{ net_by_modelo.get(k, 0)|brl }}</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  {% endfor %}
+  {% for modelo, valor in net_by_modelo.items() if modelo not in modelos %}
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">{{ modelo }}</div>
+    <div class="text-2xl font-semibold">{{ valor|brl }}</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Quadrantes -->
+<div class="border rounded-xl p-4 bg-white mt-6">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-medium">Quadrantes de clientes — Receita (X) x NET (Y) • {{ mes[:4] }}</h3>
+    <div class="text-sm text-gray-500">Base: {{ quadrant_total }} cliente(s)</div>
+  </div>
+
+  <div class="relative w-full h-64 md:h-80 border rounded overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none">
+      <div class="absolute top-0 bottom-0 left-1/2 w-px bg-black/40"></div>
+      <div class="absolute left-0 right-0 top-1/2 h-px bg-black/40"></div>
+    </div>
+
+    <div class="absolute top-1 left-1/2 -translate-x-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded">
+      Corte Receita (mediana): {{ mediana_receita_escritorio_ano|brl }}
+    </div>
+    <div class="absolute right-1 top-1/2 -translate-y-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded transform rotate-90 origin-right">
+      Corte NET (mediana): {{ mediana_net|brl }}
+    </div>
+
+    <div class="absolute inset-0 grid grid-cols-2 grid-rows-2">
+      <div class="bg-amber-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q3 ({{ quadrant_counts.Q3 }})</div>
+        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q3) }}%</div>
+        <div class="text-[11px] mt-1 opacity-90">Alto NET • Baixa Receita</div>
+      </div>
+      <div class="bg-emerald-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q1 ({{ quadrant_counts.Q1 }})</div>
+        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q1) }}%</div>
+        <div class="text-[11px] mt-1 opacity-90">Alto NET • Alta Receita</div>
+      </div>
+      <div class="bg-slate-400 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q4 ({{ quadrant_counts.Q4 }})</div>
+        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q4) }}%</div>
+        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Baixa Receita</div>
+      </div>
+      <div class="bg-blue-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q2 ({{ quadrant_counts.Q2 }})</div>
+        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q2) }}%</div>
+        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Alta Receita</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 text-sm">
+    <div><b>Q1</b>: Receita ≥ <u>mediana</u> & NET ≥ <u>mediana</u></div>
+    <div><b>Q2</b>: Receita ≥ <u>mediana</u> & NET &lt; <u>mediana</u></div>
+    <div><b>Q3</b>: Receita &lt; <u>mediana</u> & NET ≥ <u>mediana</u></div>
+    <div><b>Q4</b>: Receita &lt; <u>mediana</u> & NET &lt; <u>mediana</u></div>
+  </div>
+</div>
+
+<!-- Lista de clientes por quadrante -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+  {% for quad, clientes_quad in clientes_por_quadrante.items() %}
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-4 h-4 {% if quad=='Q1' %}bg-emerald-500{% elif quad=='Q2' %}bg-blue-500{% elif quad=='Q3' %}bg-amber-500{% else %}bg-slate-400{% endif %} rounded"></div>
+      <h3 class="font-medium">{{ quad }} - 
+        {% if quad=='Q1' %}Alta Receita, Alto NET
+        {% elif quad=='Q2' %}Alta Receita, Baixo NET
+        {% elif quad=='Q3' %}Baixa Receita, Alto NET
+        {% else %}Baixa Receita, Baixo NET
+        {% endif %}
+        ({{ quadrant_counts[quad] }})
+      </h3>
+    </div>
+    {% if clientes_quad %}
+      <div class="space-y-2 max-h-64 overflow-y-auto">
+        {% for cliente in clientes_quad %}
+          <div class="text-sm border-l-2 {% if quad=='Q1' %}border-emerald-500{% elif quad=='Q2' %}border-blue-500{% elif quad=='Q3' %}border-amber-500{% else %}border-slate-400{% endif %} pl-3 py-1">
+            <div class="font-medium">{{ cliente.nome }}</div>
+            <div class="text-gray-600 text-xs">
+              Receita Ano: {{ cliente.receita_ano|brl }} | NET: {{ cliente.net_total|brl }} | {{ cliente.modelo }}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm">Nenhum cliente neste quadrante</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

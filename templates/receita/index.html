@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Receita — Rota Assessoria{% endblock %}
+{% block subtitle %}Análises de receita (fonte: {{ source }}) — View: {{ view_version }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Receita mensal (Escritório & Assessor) -->
+  <div class="border rounded-xl p-4 bg-white">
+    <h3 class="font-medium mb-3">Receita mensal — Escritório e Assessor</h3>
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-600">
+        <tr>
+          <th class="text-left px-3 py-2">Mês</th>
+          <th class="text-right px-3 py-2">Escritório</th>
+          <th class="text-right px-3 py-2">Assessor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in hist_mensal %}
+        <tr class="border-t">
+          <td class="px-3 py-2">{{ r.mes }}</td>
+          <td class="px-3 py-2 text-right">{{ r.escritorio|brl }}</td>
+          <td class="px-3 py-2 text-right">{{ r.assessor|brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Filtro por Produtos + Recorrente (Assessor) -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="border rounded-xl p-4 bg-white">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-medium">Produtos para recorrência</h3>
+        {% if not produto_presente %}
+          <span class="text-xs text-red-600">Coluna "produto" não encontrada.</span>
+        {% endif %}
+      </div>
+
+      <form
+        id="form-produtos"
+        hx-get="{{ url_for('receita.recorrente_partial') }}"
+        hx-target="#recorrente-box"
+        hx-swap="innerHTML"
+        hx-trigger="change from:input[name='produtos'] throttle:200ms"
+        class="space-y-3 max-h-72 overflow-auto pr-2"
+      >
+        {% for p in produtos %}
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="produtos" value="{{ p }}"
+                   class="rounded border-gray-300"
+                   {% if p in selected_products %}checked{% endif %}>
+            <span>{{ p }}</span>
+          </label>
+        {% endfor %}
+      </form>
+
+      <div class="mt-3 flex items-center gap-2">
+        <button type="button"
+                class="px-2 py-1 text-xs rounded border"
+                onclick="document.querySelectorAll('#form-produtos input[name=produtos]').forEach(c=>{c.checked=true; c.dispatchEvent(new Event('change',{bubbles:true}))});">
+          Selecionar todos
+        </button>
+        <button type="button"
+                class="px-2 py-1 text-xs rounded border"
+                onclick="document.querySelectorAll('#form-produtos input[name=produtos]').forEach(c=>{c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true}))});">
+          Limpar
+        </button>
+      </div>
+    </div>
+
+    <div id="recorrente-box" class="md:col-span-2">
+      {% include "receita/_recorrente.html" with context %}
+    </div>
+  </div>
+
+  <!-- Receita por cliente (Escritório primeiro, depois Assessor) -->
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <h3 class="font-medium">Receita por cliente{% if mes_filter %} — {{ mes_filter }}{% endif %}</h3>
+
+      <form method="get" class="flex flex-wrap items-end gap-3 text-sm">
+        <div>
+          <label class="block text-xs text-gray-600">Mês (YYYY-MM)</label>
+          <input name="mes" value="{{ mes_filter }}" placeholder="YYYY-MM" class="border rounded px-2 py-1 text-sm">
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-600">Cliente</label>
+          <select name="cliente" class="border rounded px-2 py-1 text-sm min-w-[240px]">
+            <option value="" {% if not cliente_filter %}selected{% endif %}>Todos</option>
+            {% set seen = {} %}
+            {% for c in clientes %}
+              {% set chave = (c.nome or c.codigo)|upper %}
+              {% if not seen.get(chave) %}
+                <option value="{{ c.codigo }}" {% if cliente_filter_canon==c.codigo %}selected{% endif %}>
+                  {{ c.nome }}
+                </option>
+                {% set _ = seen.update({chave: 1}) %}
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+
+        {% for p in selected_products %}
+          <input type="hidden" name="produtos" value="{{ p }}">
+        {% endfor %}
+
+        <button class="px-2 py-1 rounded border">Filtrar</button>
+      </form>
+    </div>
+
+    <div class="mt-4">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="text-left  px-3 py-2">Nome</th>
+            <th class="text-center px-3 py-2">Mês</th>
+			<th class="text-right px-3 py-2">Escritório — XP</th>
+            <th class="text-right px-3 py-2">Escritório — MB</th>
+			<th class="text-right px-3 py-2">Assessor — XP</th>
+            <th class="text-right px-3 py-2">Assessor — MB</th>
+            <th class="text-right px-3 py-2">Escritório (Total)</th>            
+            <th class="text-right px-3 py-2">Assessor (Total)</th>
+            
+          </tr>
+        </thead>
+        <tbody>
+          {% if not clientes_por_mes %}
+            <tr class="border-t">
+              <td colspan="8" class="px-3 py-3 text-gray-500">Sem dados para os filtros selecionados.</td>
+            </tr>
+          {% endif %}
+
+          {% set clientes_agrupados = {} %}
+          {% for bloco in clientes_por_mes %}
+            {% for it in bloco.itens %}
+              {% if it.nome not in clientes_agrupados %}
+                {% set _ = clientes_agrupados.update({it.nome: []}) %}
+              {% endif %}
+              {% set _ = clientes_agrupados[it.nome].append({
+                'mes': bloco.mes,
+				'escritorio_xp': it.escritorio_xp,
+                'escritorio_mb': it.escritorio_mb,
+				'assessor_xp': it.assessor_xp,
+                'assessor_mb': it.assessor_mb,
+				'valor_escritorio': it.valor_escritorio,				
+                'valor_assessor': it.valor_assessor,                
+                
+              }) %}
+            {% endfor %}
+          {% endfor %}
+
+          {% for cliente_nome, meses_data in clientes_agrupados|dictsort %}
+            {% set nrows = meses_data|length %}
+			{% set total_escritorio_xp = meses_data | sum(attribute='escritorio_xp') %}
+            {% set total_escritorio_mb = meses_data | sum(attribute='escritorio_mb') %}
+			{% set total_assessor_xp = meses_data | sum(attribute='assessor_xp') %}
+            {% set total_assessor_mb = meses_data | sum(attribute='assessor_mb') %}
+            {% set total_escritorio = meses_data | sum(attribute='valor_escritorio') %}            
+            {% set total_assessor = meses_data | sum(attribute='valor_assessor') %}
+            
+
+            {% for row in meses_data %}
+              <tr class="border-t hover:bg-gray-50">
+                {% if loop.first %}
+                  <td class="px-3 py-2 font-medium align-top" rowspan="{{ nrows + 1 }}">{{ cliente_nome }}</td>
+                {% endif %}
+                <td class="px-3 py-2 text-center">{{ row.mes }}</td>
+				<td class="px-3 py-2 text-right">{{ row.escritorio_xp|brl }}</td>
+                <td class="px-3 py-2 text-right">{{ row.escritorio_mb|brl }}</td>
+				<td class="px-3 py-2 text-right">{{ row.assessor_xp|brl }}</td>
+                <td class="px-3 py-2 text-right">{{ row.assessor_mb|brl }}</td>
+                <td class="px-3 py-2 text-right">{{ row.valor_escritorio|brl }}</td>                
+                <td class="px-3 py-2 text-right">{{ row.valor_assessor|brl }}</td>
+                
+              </tr>
+            {% endfor %}
+            <!-- Linha de Total do cliente -->
+            <tr class="border-t bg-gray-100 font-semibold text-gray-800">
+              <td class="px-3 py-2 text-center">TOTAL</td>
+			  <td class="px-3 py-2 text-right">{{ total_escritorio_xp|brl }}</td>
+              <td class="px-3 py-2 text-right">{{ total_escritorio_mb|brl }}</td>
+			  <td class="px-3 py-2 text-right">{{ total_assessor_xp|brl }}</td>
+              <td class="px-3 py-2 text-right">{{ total_assessor_mb|brl }}</td>
+              <td class="px-3 py-2 text-right">{{ total_escritorio|brl }}</td>              
+              <td class="px-3 py-2 text-right">{{ total_assessor|brl }}</td>
+              
+            </tr>
+            <tr>
+              <td colspan="8" class="border-t-2 border-gray-200"></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if error_msg %}
+    <div class="px-4 py-2 rounded border border-red-300 bg-red-50 text-red-700">
+      Erro Supabase: {{ error_msg }}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
