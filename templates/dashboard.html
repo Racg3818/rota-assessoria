@@ -27,7 +27,7 @@
     <div class="text-sm text-gray-500">Receita do escritório (mês)</div>
     <div class="text-2xl font-semibold">{{ receita_total|brl }}</div>
     <div class="text-xs text-gray-400 mt-1">
-      Ativa: {{ receita_ativa_mes|brl }} + Passiva: {{ receita_passiva_mes|brl }}
+      Ativa: {{ receita_ativa_mes|brl }} + Recorrente: {{ receita_passiva_mes|brl }}
     </div>
   </div>
 
@@ -54,13 +54,25 @@
     <div class="text-2xl font-semibold">{{ mediana_receita_escritorio_ano|brl }}</div>
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">% Penetração de base (efetivadas)</div>
-    <div class="text-2xl font-semibold">
-      {{ (penetracao_pct or 0)|round(1) }}%
+  {% set roa_value = (roa_percentual or 0)|round(2) %}
+  {% if roa_value < 0.4 %}
+    {% set roa_bg = 'bg-red-100 border-red-300' %}
+    {% set roa_text = 'text-red-800' %}
+  {% elif roa_value >= 0.4 and roa_value <= 0.59 %}
+    {% set roa_bg = 'bg-amber-100 border-amber-300' %}
+    {% set roa_text = 'text-amber-800' %}
+  {% else %}
+    {% set roa_bg = 'bg-green-100 border-green-300' %}
+    {% set roa_text = 'text-green-800' %}
+  {% endif %}
+  
+  <div class="border rounded-xl p-4 {{ roa_bg }}">
+    <div class="text-sm text-gray-500">ROA da carteira</div>
+    <div class="text-2xl font-semibold {{ roa_text }}">
+      {{ roa_value }}%
     </div>
-    <div class="text-xs text-gray-500 mt-1">
-      {{ penetracao_ativos or 0 }}/{{ penetracao_base or 0 }} clientes com alocação ({{ mes }}, Campanha=Sim, Efetivada=Sim)
+    <div class="text-xs text-gray-400 mt-1">
+      (Receita × 12) ÷ NET Total
     </div>
   </div>
 </div>
@@ -84,6 +96,31 @@
           <span class="text-xs text-gray-400">(defina a meta para ativar a barra)</span>
         {% endif %}
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Penetração de base -->
+<div class="grid grid-cols-1 gap-6 mt-6">
+  {% set penetracao_value = (penetracao_pct or 0)|round(1) %}
+  {% if penetracao_value <= 10 %}
+    {% set penetracao_bg = 'bg-red-100 border-red-300' %}
+    {% set penetracao_text = 'text-red-800' %}
+  {% elif penetracao_value >= 11 and penetracao_value <= 19 %}
+    {% set penetracao_bg = 'bg-amber-100 border-amber-300' %}
+    {% set penetracao_text = 'text-amber-800' %}
+  {% else %}
+    {% set penetracao_bg = 'bg-green-100 border-green-300' %}
+    {% set penetracao_text = 'text-green-800' %}
+  {% endif %}
+  
+  <div class="border rounded-xl p-4 {{ penetracao_bg }}">
+    <div class="flex items-center justify-between">
+      <h3 class="font-medium">Penetração de Base</h3>
+      <span class="text-sm {{ penetracao_text }} font-semibold">{{ penetracao_value }}%</span>
+    </div>
+    <div class="text-xs text-gray-400 mt-2">
+      {{ penetracao_ativos or 0 }}/{{ penetracao_base or 0 }} clientes com alocação efetivada em produto de campanha ({{ mes }})
     </div>
   </div>
 </div>
@@ -190,5 +227,87 @@
   </div>
   {% endfor %}
 </div>
+
+<!-- Gráfico evolução receita passiva assessor -->
+<div class="border rounded-xl p-4 bg-white mt-6">
+  <h3 class="font-medium mb-4">Evolução da Receita Passiva Assessor</h3>
+  <div class="h-64">
+    <canvas id="receitaPassivaChart"></canvas>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const ctx = document.getElementById('receitaPassivaChart').getContext('2d');
+  
+  const dados = {{ historico_receita_passiva|tojson }};
+  console.log('Dados histórico receita passiva:', dados);
+  
+  const labels = dados.map(item => item.mes);
+  const valores = dados.map(item => item.receita);
+  
+  console.log('Labels:', labels);
+  console.log('Valores:', valores);
+  
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Receita Passiva Assessor',
+        data: valores,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return 'R$ ' + value.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              });
+            }
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Mês'
+          }
+        }
+      },
+      interaction: {
+        intersect: false,
+        mode: 'index'
+      },
+      tooltips: {
+        callbacks: {
+          label: function(context) {
+            return 'R$ ' + context.parsed.y.toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            });
+          }
+        }
+      }
+    }
+  });
+});
+</script>
 
 {% endblock %}

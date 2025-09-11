@@ -446,34 +446,48 @@ def _receita_escritorio_mes_atual_via_alocacoes():
     return total
 
 
-def _receita_passiva_ultimo_mes():
+def _receita_assessor_recorrente():
     """
-    Calcula a receita passiva recorrente do último mês (para assessor).
-    Usa a mesma lógica da tela de Receita: considera apenas produtos nas categorias
-    selecionadas nas preferências do usuário.
+    Calcula a receita ASSESSOR recorrente do último mês DISPONÍVEL na tabela receita_itens.
+    Busca o mês mais recente na coluna data_ref e usa a mesma lógica da tela de Receita.
+    RETORNA: Receita do assessor (já é a receita líquida recorrente).
     """
     if not supabase:
         return 0.0
     
-    from datetime import datetime, timedelta
     import json
     
-    # Obter mês anterior
-    hoje = datetime.today()
-    primeiro_dia_mes_atual = hoje.replace(day=1)
-    ultimo_mes = primeiro_dia_mes_atual - timedelta(days=1)
-    mes_anterior = ultimo_mes.strftime("%Y-%m")
-    
-    current_app.logger.info("RECEITA_PASSIVA: Calculando receita recorrente para mês %s", mes_anterior)
-    
-    # Buscar categorias salvas nas preferências do usuário
+    # Buscar o último mês disponível na tabela receita_itens
     uid = _current_user_id()
     if not uid:
         current_app.logger.warning("RECEITA_PASSIVA: Sem user_id válido")
         return 0.0
     
     try:
-        # Buscar user_prefs com key='recorrencia_produtos'
+        # Buscar o último mês com dados na tabela
+        res_meses = (supabase.table("receita_itens")
+                    .select("data_ref")
+                    .eq("user_id", uid)
+                    .order("data_ref", desc=True)
+                    .limit(1)
+                    .execute())
+        
+        if not res_meses.data:
+            current_app.logger.info("RECEITA_PASSIVA: Nenhum dado na tabela receita_itens")
+            return 0.0
+        
+        ultimo_mes_disponivel = res_meses.data[0].get("data_ref", "")
+        if not ultimo_mes_disponivel:
+            current_app.logger.warning("RECEITA_PASSIVA: data_ref vazia")
+            return 0.0
+        
+        # Extrair YYYY-MM do último mês
+        mes_target = ultimo_mes_disponivel[:7]  # YYYY-MM
+        
+        current_app.logger.info("RECEITA_PASSIVA: Último mês disponível na tabela: %s (de data_ref: %s)", 
+                               mes_target, ultimo_mes_disponivel)
+        
+        # Buscar categorias salvas nas preferências do usuário
         res_prefs = (supabase.table("user_prefs")
                     .select("value")
                     .eq("user_id", uid)
@@ -495,17 +509,17 @@ def _receita_passiva_ultimo_mes():
         
         current_app.logger.info("RECEITA_PASSIVA: Produtos selecionados: %s", list(selected_set))
         
-        # Buscar receitas do mês anterior
+        # Buscar receitas do último mês disponível
         try:
-            # Tentar buscar com campos completos
+            # Buscar receitas do mês target encontrado
             res_receitas = (supabase.table("receita_itens")
                           .select("valor_liquido, produto, familia")
                           .eq("user_id", uid)
-                          .like("data_ref", f"{mes_anterior}%")
+                          .like("data_ref", f"{mes_target}%")
                           .execute())
             
             current_app.logger.info("RECEITA_PASSIVA: Encontradas %d receitas no mês %s", 
-                                   len(res_receitas.data or []), mes_anterior)
+                                   len(res_receitas.data or []), mes_target)
             
             total_passiva = 0.0
             
@@ -540,7 +554,7 @@ def _receita_passiva_ultimo_mes():
             current_app.logger.error("RECEITA_PASSIVA: Erro ao buscar receitas: %s", e)
             return 0.0
         
-        current_app.logger.info("RECEITA_PASSIVA: Total recorrente calculado: %.2f", total_passiva)
+        current_app.logger.info("RECEITA_PASSIVA: Total recorrente calculado: %.2f (mês %s)", total_passiva, mes_target)
         return total_passiva
         
     except Exception as e:
@@ -548,18 +562,60 @@ def _receita_passiva_ultimo_mes():
         return 0.0
 
 
-def _receita_escritorio_total_mes():
+def _receita_escritorio_recorrente(clientes) -> float:
+    """
+    Calcula a receita ESCRITÓRIO recorrente baseada na receita assessor recorrente.
+    Fórmula: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
+    """
+    receita_assessor_rec = _receita_assessor_recorrente()
+    
+    if receita_assessor_rec <= 0:
+        current_app.logger.info("RECEITA_ESCRIT_REC: Receita assessor recorrente = 0, retornando 0")
+        return 0.0
+    
+    if not clientes:
+        current_app.logger.warning("RECEITA_ESCRIT_REC: Sem clientes para calcular média ponderada")
+        return 0.0
+    
+    # Calcular média ponderada (mesmo cálculo usado em _receita_assessor_mes)
+    total_net = 0.0
+    total_net_ponderado = 0.0
+    
+    for cliente in clientes:
+        net_total = _to_float(cliente.get("net_total"))
+        repasse = _to_float(cliente.get("repasse"))
+        
+        if net_total > 0:
+            total_net += net_total
+            total_net_ponderado += (net_total * repasse / 100.0)
+    
+    if total_net == 0:
+        current_app.logger.warning("RECEITA_ESCRIT_REC: Nenhum cliente com NET > 0")
+        return 0.0
+    
+    media_ponderada_repasse = total_net_ponderado / total_net
+    
+    # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
+    receita_escritorio_rec = receita_assessor_rec / 0.80 / media_ponderada_repasse
+    
+    current_app.logger.info("RECEITA_ESCRIT_REC: %.2f ÷ 80%% ÷ %.4f = %.2f", 
+                           receita_assessor_rec, media_ponderada_repasse, receita_escritorio_rec)
+    
+    return receita_escritorio_rec
+
+
+def _receita_escritorio_total_mes(clientes):
     """
     Calcula a receita total do escritório no mês atual:
-    Receita Ativa (alocações EFETIVADAS do mês) + Receita Passiva (receita recorrente assessor do último mês)
+    Receita Ativa (alocações EFETIVADAS) + Receita Recorrente (calculada a partir da receita assessor)
     """
     receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
-    receita_passiva = _receita_passiva_ultimo_mes()
+    receita_recorrente = _receita_escritorio_recorrente(clientes)
     
-    total = receita_ativa + receita_passiva
+    total = receita_ativa + receita_recorrente
     
-    current_app.logger.info("RECEITA_TOTAL: Ativa=%.2f (alocações efetivadas) + Passiva=%.2f (recorrente) = Total=%.2f", 
-                           receita_ativa, receita_passiva, total)
+    current_app.logger.info("RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f = Total=%.2f", 
+                           receita_ativa, receita_recorrente, total)
     
     return total
 
@@ -571,20 +627,48 @@ def _receita_assessor_mes(receita_escritorio: float, clientes) -> float:
     
     Média Ponderada = Σ(NET_cliente × Repasse_cliente) / Σ(NET_cliente)
     """
-    if not clientes or receita_escritorio <= 0:
+    current_app.logger.info("=== DEBUG RECEITA ASSESSOR ===")
+    current_app.logger.info("Receita Escritório recebida: %.2f", receita_escritorio)
+    current_app.logger.info("Total de clientes recebidos: %d", len(clientes) if clientes else 0)
+    
+    if not clientes:
+        current_app.logger.warning("RECEITA_ASSESSOR: Lista de clientes vazia")
+        return 0.0
+        
+    if receita_escritorio <= 0:
+        current_app.logger.warning("RECEITA_ASSESSOR: Receita escritório <= 0: %.2f", receita_escritorio)
         return 0.0
     
     total_net = 0.0
     total_net_ponderado = 0.0
+    clientes_validos = 0
     
-    for cliente in clientes:
+    current_app.logger.info("Analisando clientes individualmente:")
+    
+    for i, cliente in enumerate(clientes):
+        nome = cliente.get("nome", "Sem nome")[:20]  # Primeiros 20 chars
         net_total = _to_float(cliente.get("net_total"))
         repasse = _to_float(cliente.get("repasse"))
         
+        current_app.logger.info("Cliente %d: %s | NET: %.2f | Repasse: %.2f%%", 
+                               i+1, nome, net_total, repasse)
+        
         # Só considerar clientes com NET > 0
         if net_total > 0:
+            clientes_validos += 1
+            contribution = net_total * repasse / 100.0
             total_net += net_total
-            total_net_ponderado += (net_total * repasse / 100.0)  # Repasse como percentual
+            total_net_ponderado += contribution
+            
+            current_app.logger.info("  ✅ Válido | Contribuição: %.2f × %.2f%% = %.2f", 
+                                   net_total, repasse, contribution)
+        else:
+            current_app.logger.info("  ❌ Ignorado (NET <= 0)")
+    
+    current_app.logger.info("RESUMO:")
+    current_app.logger.info("- Clientes válidos (NET > 0): %d de %d", clientes_validos, len(clientes))
+    current_app.logger.info("- Total NET: %.2f", total_net)
+    current_app.logger.info("- Total NET ponderado: %.2f", total_net_ponderado)
     
     if total_net == 0:
         current_app.logger.warning("RECEITA_ASSESSOR: Nenhum cliente com NET > 0")
@@ -593,13 +677,194 @@ def _receita_assessor_mes(receita_escritorio: float, clientes) -> float:
     # Calcular média ponderada do repasse
     media_ponderada_repasse = total_net_ponderado / total_net
     
+    current_app.logger.info("- Média ponderada: %.2f / %.2f = %.4f (%.2f%%)", 
+                           total_net_ponderado, total_net, media_ponderada_repasse, media_ponderada_repasse * 100)
+    
     # Fórmula final
     receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse
     
-    current_app.logger.info("RECEITA_ASSESSOR: Escritório=%.2f × 80%% × %.4f (média ponderada) = %.2f", 
+    current_app.logger.info("FÓRMULA FINAL:")
+    current_app.logger.info("Receita Assessor = %.2f × 80%% × %.4f = %.2f", 
                            receita_escritorio, media_ponderada_repasse, receita_assessor)
+    current_app.logger.info("=== FIM DEBUG RECEITA ASSESSOR ===")
     
     return receita_assessor
+
+
+def _calcular_roa(receita_escritorio_mes: float, clientes) -> float:
+    """
+    Calcula o ROA (Return on Assets) em percentual.
+    Fórmula: ROA = (Receita Escritório Mês × 12) ÷ Soma NET Total × 100%
+    """
+    if not clientes or receita_escritorio_mes <= 0:
+        current_app.logger.info("ROA: Receita escritório=%.2f ou sem clientes", receita_escritorio_mes)
+        return 0.0
+    
+    # Somar NET total de todos os clientes
+    soma_net_total = 0.0
+    clientes_com_net = 0
+    
+    for cliente in clientes:
+        net_total = _to_float(cliente.get("net_total"))
+        if net_total > 0:  # Só contar clientes com NET > 0
+            soma_net_total += net_total
+            clientes_com_net += 1
+    
+    if soma_net_total == 0:
+        current_app.logger.warning("ROA: Soma NET total = 0")
+        return 0.0
+    
+    # Fórmula: (Receita × 12) ÷ NET Total × 100
+    receita_anualizada = receita_escritorio_mes * 12
+    roa_decimal = receita_anualizada / soma_net_total
+    roa_percentual = roa_decimal * 100
+    
+    current_app.logger.info("ROA: (%.2f × 12) ÷ %.2f = %.4f = %.2f%%", 
+                           receita_escritorio_mes, soma_net_total, roa_decimal, roa_percentual)
+    current_app.logger.info("ROA: Baseado em %d clientes com NET > 0", clientes_com_net)
+    
+    return roa_percentual
+
+
+def _historico_receita_passiva_assessor() -> list:
+    """
+    Busca o histórico da receita passiva (assessor) mês a mês.
+    Retorna lista de dicionários: [{"mes": "2025-01", "valor": 1500.0}, ...]
+    """
+    current_app.logger.info("HIST_RECEITA_PASSIVA: INICIANDO função")
+    
+    if not supabase:
+        current_app.logger.info("HIST_RECEITA_PASSIVA: Supabase não disponível")
+        return []
+    
+    import json
+    from collections import defaultdict
+    
+    uid = _current_user_id()
+    current_app.logger.info("HIST_RECEITA_PASSIVA: User ID: %s", uid)
+    if not uid:
+        current_app.logger.info("HIST_RECEITA_PASSIVA: Sem user_id")
+        return []
+    
+    try:
+        # Buscar TODAS as receitas do usuário com paginação
+        all_receitas = []
+        page_size = 1000
+        offset = 0
+        
+        while True:
+            res_receitas = (supabase.table("receita_itens")
+                          .select("data_ref, valor_liquido, produto, familia")
+                          .eq("user_id", uid)
+                          .order("data_ref")
+                          .range(offset, offset + page_size - 1)
+                          .execute())
+            
+            if not res_receitas.data:
+                break
+                
+            all_receitas.extend(res_receitas.data)
+            current_app.logger.info("HIST_RECEITA_PASSIVA: Página offset %d - %d registros", offset, len(res_receitas.data))
+            
+            # Se a página retornou menos que page_size, é a última página
+            if len(res_receitas.data) < page_size:
+                break
+                
+            offset += page_size
+        
+        current_app.logger.info("HIST_RECEITA_PASSIVA: TOTAL de receitas encontradas: %d", len(all_receitas))
+        
+        if not all_receitas:
+            current_app.logger.info("HIST_RECEITA_PASSIVA: Nenhuma receita encontrada")
+            return []
+        
+        # Buscar categorias selecionadas
+        res_prefs = (supabase.table("user_prefs")
+                    .select("value")
+                    .eq("user_id", uid)
+                    .eq("key", "recorrencia_produtos")
+                    .limit(1)
+                    .execute())
+        
+        selected_set = set()
+        if res_prefs.data:
+            categorias_value = res_prefs.data[0].get("value")
+            if isinstance(categorias_value, str):
+                try:
+                    categorias = json.loads(categorias_value)
+                    selected_set = set(categorias)
+                except:
+                    pass
+            elif isinstance(categorias_value, list):
+                selected_set = set(categorias_value)
+        
+        current_app.logger.info("HIST_RECEITA_PASSIVA: Produtos selecionados: %s", list(selected_set))
+        
+        # Agrupar por mês
+        receita_por_mes = defaultdict(float)
+        total_processados = 0
+        total_incluidos = 0
+        
+        for receita in all_receitas:
+            total_processados += 1
+            data_ref = receita.get("data_ref", "")
+            if not data_ref:
+                continue
+                
+            mes = data_ref[:7]  # YYYY-MM
+            produto = (receita.get("produto") or "").strip()
+            familia = (receita.get("familia") or "").strip()
+            val_liq = _to_float(receita.get("valor_liquido"))
+            
+            # Aplicar mesma lógica da receita passiva
+            def _is_admin_family(fam):
+                fam_lower = fam.lower()
+                return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
+            
+            is_admin = _is_admin_family(familia)
+            if is_admin:
+                if total_processados <= 5:
+                    current_app.logger.info("HIST_RECEITA_PASSIVA: Registro %d IGNORADO (admin) - Mês: %s, Família: '%s', Produto: '%s', Valor: %s", 
+                                           total_processados, mes, familia, produto, val_liq)
+                continue  # Ignorar famílias administrativas
+            
+            # Regra da receita recorrente
+            produto_presente = bool(produto)
+            incluir = False
+            
+            if not produto_presente:
+                # Se não tem produto, conta como recorrente
+                receita_por_mes[mes] += val_liq
+                incluir = True
+                total_incluidos += 1
+            else:
+                # Se tem produto, só conta se estiver nas categorias selecionadas
+                if not selected_set or (produto in selected_set):
+                    receita_por_mes[mes] += val_liq
+                    incluir = True
+                    total_incluidos += 1
+            
+            if total_processados <= 10:  # Log dos primeiros 10 registros
+                current_app.logger.info("HIST_RECEITA_PASSIVA: Registro %d - Mês: %s, Família: '%s', Produto: '%s', Valor: %s, Incluído: %s", 
+                                       total_processados, mes, familia, produto, val_liq, incluir)
+        
+        current_app.logger.info("HIST_RECEITA_PASSIVA: Processados %d registros, incluídos %d", total_processados, total_incluidos)
+        
+        # Converter para lista ordenada
+        historico = []
+        for mes in sorted(receita_por_mes.keys()):
+            historico.append({
+                "mes": mes,
+                "receita": receita_por_mes[mes]
+            })
+        
+        current_app.logger.info("HIST_RECEITA_PASSIVA: %d meses processados", len(historico))
+        current_app.logger.info("HIST_RECEITA_PASSIVA: Dados finais: %s", historico)
+        return historico
+        
+    except Exception as e:
+        current_app.logger.error("HIST_RECEITA_PASSIVA: Erro: %s", e)
+        return []
 
 
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
@@ -727,13 +992,21 @@ def debug():
 @login_required
 def index():
     mes, meta = _meta_do_mes()
-    receita_total_mes = _receita_escritorio_total_mes()
-
     # Todas as leituras abaixo já aplicam filtro por user_id
     clientes = _fetch_clientes()
     
-    # Calcular receita do assessor
+    # Calcular receita total do escritório (ativa + recorrente)
+    receita_total_mes = _receita_escritorio_total_mes(clientes)
+    
+    # Calcular receita do assessor usando a fórmula original
     receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
+    
+    # Calcular ROA
+    roa_percentual = _calcular_roa(receita_total_mes, clientes)
+    
+    # Buscar histórico da receita passiva
+    historico_receita_passiva = _historico_receita_passiva_assessor()
+    
     by_modelo = _net_by_modelo(clientes)
     net_by_modelo = by_modelo
 
@@ -803,9 +1076,15 @@ def index():
         penetracao_pct=penetracao_pct,
         penetracao_ativos=penetracao_ativos,
         penetracao_base=penetracao_base,
-        # Detalhamento da receita (ativa + passiva)
+        # Detalhamento da receita (ativa + recorrente)
         receita_ativa_mes=_receita_escritorio_mes_atual_via_alocacoes(),
-        receita_passiva_mes=_receita_passiva_ultimo_mes(),
+        receita_passiva_mes=_receita_escritorio_recorrente(clientes),
         # Receita do assessor
         receita_assessor_mes=receita_assessor_mes,
+        # Receita assessor recorrente (para debug)
+        receita_assessor_recorrente=_receita_assessor_recorrente(),
+        # ROA
+        roa_percentual=roa_percentual,
+        # Histórico receita passiva para gráfico
+        historico_receita_passiva=historico_receita_passiva,
     )
