@@ -431,6 +431,11 @@ def _receita_escritorio_mes_atual_via_alocacoes():
         # apenas mês vigente
         if (r.get("created_at") or "")[:7] != mes_atual:
             continue
+        
+        # IMPORTANTE: Só considerar alocações EFETIVADAS
+        efetivada = r.get("efetivada")
+        if not efetivada:  # Se não efetivada, pular
+            continue
 
         valor = _to_float(r.get("valor"))
         produto = r.get("produto") or {}
@@ -443,8 +448,9 @@ def _receita_escritorio_mes_atual_via_alocacoes():
 
 def _receita_passiva_ultimo_mes():
     """
-    Calcula a receita passiva do último mês baseada nas categorias
-    salvas em user_prefs com key='recorrencia_produtos'.
+    Calcula a receita passiva recorrente do último mês (para assessor).
+    Usa a mesma lógica da tela de Receita: considera apenas produtos nas categorias
+    selecionadas nas preferências do usuário.
     """
     if not supabase:
         return 0.0
@@ -458,7 +464,7 @@ def _receita_passiva_ultimo_mes():
     ultimo_mes = primeiro_dia_mes_atual - timedelta(days=1)
     mes_anterior = ultimo_mes.strftime("%Y-%m")
     
-    current_app.logger.info("RECEITA_PASSIVA: Calculando para mês %s", mes_anterior)
+    current_app.logger.info("RECEITA_PASSIVA: Calculando receita recorrente para mês %s", mes_anterior)
     
     # Buscar categorias salvas nas preferências do usuário
     uid = _current_user_id()
@@ -475,35 +481,25 @@ def _receita_passiva_ultimo_mes():
                     .limit(1)
                     .execute())
         
-        if not res_prefs.data:
-            current_app.logger.info("RECEITA_PASSIVA: Nenhuma preferência salva")
-            return 0.0
+        selected_set = set()
+        if res_prefs.data:
+            categorias_value = res_prefs.data[0].get("value")
+            if isinstance(categorias_value, str):
+                try:
+                    categorias = json.loads(categorias_value)
+                    selected_set = set(categorias)
+                except:
+                    pass
+            elif isinstance(categorias_value, list):
+                selected_set = set(categorias_value)
         
-        categorias_value = res_prefs.data[0].get("value")
-        if isinstance(categorias_value, str):
-            try:
-                categorias = json.loads(categorias_value)
-            except:
-                categorias = []
-        elif isinstance(categorias_value, list):
-            categorias = categorias_value
-        else:
-            categorias = []
+        current_app.logger.info("RECEITA_PASSIVA: Produtos selecionados: %s", list(selected_set))
         
-        if not categorias:
-            current_app.logger.info("RECEITA_PASSIVA: Lista de categorias vazia")
-            return 0.0
-        
-        current_app.logger.info("RECEITA_PASSIVA: Categorias configuradas: %s", categorias)
-        
-        # Buscar receitas do mês anterior filtradas pelas categorias
-        # Usar comissao_escritorio (não comissao_assessor) conforme solicitado
-        total_passiva = 0.0
-        
+        # Buscar receitas do mês anterior
         try:
-            # Primeiro tentar com campos completos
+            # Tentar buscar com campos completos
             res_receitas = (supabase.table("receita_itens")
-                          .select("comissao_escritorio, categoria, produto, familia")
+                          .select("valor_liquido, produto, familia")
                           .eq("user_id", uid)
                           .like("data_ref", f"{mes_anterior}%")
                           .execute())
@@ -511,31 +507,40 @@ def _receita_passiva_ultimo_mes():
             current_app.logger.info("RECEITA_PASSIVA: Encontradas %d receitas no mês %s", 
                                    len(res_receitas.data or []), mes_anterior)
             
+            total_passiva = 0.0
+            
             for receita in res_receitas.data or []:
-                # Verificar se produto/família está nas categorias configuradas
                 produto = (receita.get("produto") or "").strip()
                 familia = (receita.get("familia") or "").strip()
-                categoria_receita = receita.get("categoria", "").strip()
+                val_liq = _to_float(receita.get("valor_liquido"))
                 
-                # Verificar se algum dos campos coincide com as categorias salvas
-                match_found = False
-                for cat_config in categorias:
-                    if (cat_config in produto or 
-                        cat_config in familia or 
-                        cat_config in categoria_receita):
-                        match_found = True
-                        break
+                # Lógica similar à tela de receita (linhas 279-282 de receita.py)
+                produto_presente = bool(produto)
                 
-                if match_found:
-                    valor = _to_float(receita.get("comissao_escritorio"))
-                    total_passiva += valor
-                    current_app.logger.debug("RECEITA_PASSIVA: +%.2f de %s/%s", 
-                                           valor, produto, familia)
+                # Verificar se família é administrativa (ignorar)
+                def _is_admin_family(fam):
+                    fam_lower = fam.lower()
+                    return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
+                
+                if _is_admin_family(familia):
+                    continue  # Ignorar famílias administrativas
+                
+                # Regra da receita recorrente:
+                if not produto_presente:
+                    # Se não tem produto, conta como recorrente
+                    total_passiva += val_liq
+                    current_app.logger.debug("RECEITA_PASSIVA: +%.2f (sem produto)", val_liq)
+                else:
+                    # Se tem produto, só conta se estiver nas categorias selecionadas
+                    if not selected_set or (produto in selected_set):
+                        total_passiva += val_liq
+                        current_app.logger.debug("RECEITA_PASSIVA: +%.2f de produto %s", val_liq, produto)
         
         except Exception as e:
             current_app.logger.error("RECEITA_PASSIVA: Erro ao buscar receitas: %s", e)
+            return 0.0
         
-        current_app.logger.info("RECEITA_PASSIVA: Total calculado: %.2f", total_passiva)
+        current_app.logger.info("RECEITA_PASSIVA: Total recorrente calculado: %.2f", total_passiva)
         return total_passiva
         
     except Exception as e:
@@ -546,14 +551,14 @@ def _receita_passiva_ultimo_mes():
 def _receita_escritorio_total_mes():
     """
     Calcula a receita total do escritório no mês atual:
-    Receita Ativa (alocações) + Receita Passiva (último mês, categorias filtradas)
+    Receita Ativa (alocações EFETIVADAS do mês) + Receita Passiva (receita recorrente assessor do último mês)
     """
     receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
     receita_passiva = _receita_passiva_ultimo_mes()
     
     total = receita_ativa + receita_passiva
     
-    current_app.logger.info("RECEITA_TOTAL: Ativa=%.2f + Passiva=%.2f = Total=%.2f", 
+    current_app.logger.info("RECEITA_TOTAL: Ativa=%.2f (alocações efetivadas) + Passiva=%.2f (recorrente) = Total=%.2f", 
                            receita_ativa, receita_passiva, total)
     
     return total
