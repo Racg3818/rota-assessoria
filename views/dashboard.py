@@ -497,22 +497,40 @@ def _receita_passiva_ultimo_mes():
         current_app.logger.info("RECEITA_PASSIVA: Categorias configuradas: %s", categorias)
         
         # Buscar receitas do mês anterior filtradas pelas categorias
-        # Assumindo que existe uma tabela 'receita_itens' com categoria
+        # Usar comissao_escritorio (não comissao_assessor) conforme solicitado
         total_passiva = 0.0
         
         try:
+            # Primeiro tentar com campos completos
             res_receitas = (supabase.table("receita_itens")
-                          .select("comissao_escritorio, categoria")
+                          .select("comissao_escritorio, categoria, produto, familia")
                           .eq("user_id", uid)
                           .like("data_ref", f"{mes_anterior}%")
                           .execute())
             
+            current_app.logger.info("RECEITA_PASSIVA: Encontradas %d receitas no mês %s", 
+                                   len(res_receitas.data or []), mes_anterior)
+            
             for receita in res_receitas.data or []:
-                categoria = receita.get("categoria", "")
-                if categoria in categorias:
+                # Verificar se produto/família está nas categorias configuradas
+                produto = (receita.get("produto") or "").strip()
+                familia = (receita.get("familia") or "").strip()
+                categoria_receita = receita.get("categoria", "").strip()
+                
+                # Verificar se algum dos campos coincide com as categorias salvas
+                match_found = False
+                for cat_config in categorias:
+                    if (cat_config in produto or 
+                        cat_config in familia or 
+                        cat_config in categoria_receita):
+                        match_found = True
+                        break
+                
+                if match_found:
                     valor = _to_float(receita.get("comissao_escritorio"))
                     total_passiva += valor
-                    current_app.logger.debug("RECEITA_PASSIVA: +%.2f de categoria %s", valor, categoria)
+                    current_app.logger.debug("RECEITA_PASSIVA: +%.2f de %s/%s", 
+                                           valor, produto, familia)
         
         except Exception as e:
             current_app.logger.error("RECEITA_PASSIVA: Erro ao buscar receitas: %s", e)
