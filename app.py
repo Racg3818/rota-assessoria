@@ -41,6 +41,7 @@ def create_app():
         db.create_all()
 
     # Blueprints
+    app.register_blueprint(wellknown_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(dash_bp)
     app.register_blueprint(receita_bp)
@@ -48,6 +49,12 @@ def create_app():
     app.register_blueprint(importar_bp)
     app.register_blueprint(fin_bp)
     app.register_blueprint(alocacoes_bp)
+
+    # Rota raiz para redirecionamento
+    @app.route('/')
+    def index():
+        from flask import redirect, url_for
+        return redirect(url_for('auth.login'))
 
     return app
 
