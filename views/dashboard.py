@@ -564,6 +564,44 @@ def _receita_escritorio_total_mes():
     return total
 
 
+def _receita_assessor_mes(receita_escritorio: float, clientes) -> float:
+    """
+    Calcula a receita do assessor no mês usando a fórmula:
+    Receita Assessor = Receita Escritório × 80% × (Média Ponderada do NET × Repasse)
+    
+    Média Ponderada = Σ(NET_cliente × Repasse_cliente) / Σ(NET_cliente)
+    """
+    if not clientes or receita_escritorio <= 0:
+        return 0.0
+    
+    total_net = 0.0
+    total_net_ponderado = 0.0
+    
+    for cliente in clientes:
+        net_total = _to_float(cliente.get("net_total"))
+        repasse = _to_float(cliente.get("repasse"))
+        
+        # Só considerar clientes com NET > 0
+        if net_total > 0:
+            total_net += net_total
+            total_net_ponderado += (net_total * repasse / 100.0)  # Repasse como percentual
+    
+    if total_net == 0:
+        current_app.logger.warning("RECEITA_ASSESSOR: Nenhum cliente com NET > 0")
+        return 0.0
+    
+    # Calcular média ponderada do repasse
+    media_ponderada_repasse = total_net_ponderado / total_net
+    
+    # Fórmula final
+    receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse
+    
+    current_app.logger.info("RECEITA_ASSESSOR: Escritório=%.2f × 80%% × %.4f (média ponderada) = %.2f", 
+                           receita_escritorio, media_ponderada_repasse, receita_assessor)
+    
+    return receita_assessor
+
+
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
     % Penetração de base no mês vigente.
@@ -693,6 +731,9 @@ def index():
 
     # Todas as leituras abaixo já aplicam filtro por user_id
     clientes = _fetch_clientes()
+    
+    # Calcular receita do assessor
+    receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
     by_modelo = _net_by_modelo(clientes)
     net_by_modelo = by_modelo
 
@@ -765,4 +806,6 @@ def index():
         # Detalhamento da receita (ativa + passiva)
         receita_ativa_mes=_receita_escritorio_mes_atual_via_alocacoes(),
         receita_passiva_mes=_receita_passiva_ultimo_mes(),
+        # Receita do assessor
+        receita_assessor_mes=receita_assessor_mes,
     )
