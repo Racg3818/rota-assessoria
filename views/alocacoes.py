@@ -75,7 +75,14 @@ def _calc_receitas(valor: float, roa_pct: float, repasse: int, modelo: str, clas
     base = _receita_base(valor, roa_pct)
     if not _pode_ter_receita_escritorio(modelo, classe):
         return 0.0, 0.0, base
-    rep = 0.5 if int(repasse) == 50 else 0.35
+    
+    # Para Renda Fixa Digital, sempre usar repasse fixo de 50%
+    classe_norm = _norm_classe(classe)
+    if classe_norm == "RENDA FIXA DIGITAL":
+        rep = 0.5
+    else:
+        rep = 0.5 if int(repasse) == 50 else 0.35
+    
     receita_escritorio = base
     receita_assessor = receita_escritorio * 0.80 * rep
     return receita_escritorio, receita_assessor, base
