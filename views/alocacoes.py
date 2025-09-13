@@ -156,7 +156,7 @@ def _get_alocacao_by_id(aloc_id: str):
                     "percentual": _to_float(r.get("percentual")),
                     "efetivada": bool(r.get("efetivada")),
                     "status": "mapeado",  # Padrão até coluna ser criada
-                    "cliente": r.get("cliente") or {}
+                    "cliente": r.get("cliente") or {},
                     "produto": r.get("produto") or {},
                 }
         except Exception:
