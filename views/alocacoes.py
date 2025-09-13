@@ -390,7 +390,14 @@ def novo():
 
         if Alocacao:
             try:
+                uid = _uid()
+                if not uid:
+                    flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+                    return redirect(url_for("alocacoes.novo"))
+                
                 kwargs = {"cliente_id": cliente_id, "produto_id": produto_id}
+                if hasattr(Alocacao, "user_id"):
+                    kwargs["user_id"] = uid
                 if hasattr(Alocacao, "valor"):
                     kwargs["valor"] = valor
                 if hasattr(Alocacao, "percentual"):
