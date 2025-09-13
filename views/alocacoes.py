@@ -327,8 +327,11 @@ def index():
     
     for a in enriched:
         status = a.get("status", "mapeado")
-        if status in kanban:
-            kanban[status].append(a)
+        # Garantir que status seja válido, senão usar "mapeado"
+        if status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
+            status = "mapeado"
+            a["status"] = status
+        kanban[status].append(a)
 
     return render_template(
         "alocacoes/index.html",
@@ -376,6 +379,7 @@ def novo():
                     "valor": valor,
                     "percentual": 0,
                     "efetivada": False,
+                    "status": "mapeado",
                     "user_id": uid,
                 }).execute()
                 flash("Alocação cadastrada.", "success")
@@ -393,6 +397,8 @@ def novo():
                     kwargs.setdefault("percentual", 0)
                 if hasattr(Alocacao, "efetivada"):
                     kwargs.setdefault("efetivada", False)
+                if hasattr(Alocacao, "status"):
+                    kwargs.setdefault("status", "mapeado")
                 a = Alocacao(**kwargs)
                 db.session.add(a)
                 db.session.commit()
@@ -462,6 +468,9 @@ def editar(aloc_id: str):
                     a.percentual = percentual
                 if hasattr(a, "efetivada"):
                     a.efetivada = efetivada
+                # Garantir que alocações existentes tenham status padrão
+                if hasattr(a, "status") and not getattr(a, "status", None):
+                    a.status = "mapeado"
                 db.session.commit()
                 flash("Alocação atualizada (banco local).", "success")
                 return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
