@@ -138,7 +138,7 @@ def _get_alocacao_by_id(aloc_id: str):
         try:
             uid = _uid()
             q = supabase.table("alocacoes").select(
-                "id, cliente_id, produto_id, valor, percentual, efetivada, status, "
+                "id, cliente_id, produto_id, valor, percentual, efetivada, "
                 "cliente:cliente_id ( id, nome, modelo, repasse ), "
                 "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
             ).eq("id", aloc_id).limit(1)
@@ -155,8 +155,8 @@ def _get_alocacao_by_id(aloc_id: str):
                     "valor": _to_float(r.get("valor")),
                     "percentual": _to_float(r.get("percentual")),
                     "efetivada": bool(r.get("efetivada")),
-                    "status": r.get("status") or "mapeado",
-                    "cliente": r.get("cliente") or {},
+                    "status": "mapeado",  # Padrão até coluna ser criada
+                    "cliente": r.get("cliente") or {}
                     "produto": r.get("produto") or {},
                 }
         except Exception:
@@ -177,7 +177,7 @@ def index():
         try:
             uid = _uid()
             q = supabase.table("alocacoes").select(
-                "id, percentual, valor, cliente_id, produto_id, efetivada, status, "
+                "id, percentual, valor, cliente_id, produto_id, efetivada, "
                 "cliente:cliente_id ( id, nome, modelo, repasse ), "
                 "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
             ).order("created_at", desc=False)
@@ -194,7 +194,7 @@ def index():
                     "cliente_id": r.get("cliente_id"),
                     "produto_id": r.get("produto_id"),
                     "efetivada": bool(r.get("efetivada")),
-                    "status": r.get("status") or "mapeado",
+                    "status": "mapeado",  # Padrão até coluna ser criada
                     "cliente": (r.get("cliente") or {}),
                     "produto": (r.get("produto") or {}),
                 })
@@ -311,7 +311,6 @@ def novo():
                 "valor": valor,
                 "percentual": 0,
                 "efetivada": False,
-                "status": "mapeado",
                 "user_id": uid,
             }).execute()
             flash("Alocação cadastrada com sucesso!", "success")
@@ -405,32 +404,12 @@ def efetivar(aloc_id: str):
 
 
 # ---------------- ATUALIZAR STATUS ----------------
+# TEMPORARIAMENTE DESABILITADO - Aguardando criação da coluna 'status' no Supabase
 @alocacoes_bp.route("/<string:aloc_id>/status", methods=["POST"])
 @login_required
 def atualizar_status(aloc_id: str):
-    new_status = request.form.get("status", "mapeado")
     next_url = request.args.get("next") or request.form.get("next") or url_for("alocacoes.index")
-    
-    if new_status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
-        flash("Status inválido.", "error")
-        return redirect(next_url)
-    
-    if supabase:
-        try:
-            uid = _uid()
-            if not uid:
-                flash("Sessão inválida: não foi possível identificar o usuário.", "error")
-                return redirect(next_url)
-            
-            q = supabase.table("alocacoes").update({"status": new_status}).eq("id", aloc_id).eq("user_id", uid)
-            q.execute()
-            flash("Status atualizado.", "success")
-        except Exception:
-            current_app.logger.exception("Falha ao atualizar status no Supabase")
-            flash("Falha ao atualizar status.", "error")
-    else:
-        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
-    
+    flash("Funcionalidade temporariamente indisponível. Coluna 'status' será criada em breve.", "info")
     return redirect(next_url)
 
 
