@@ -138,7 +138,7 @@ def _get_alocacao_by_id(aloc_id: str):
         try:
             uid = _uid()
             q = supabase.table("alocacoes").select(
-                "id, cliente_id, produto_id, valor, percentual, efetivada, "
+                "id, cliente_id, produto_id, valor, percentual, efetivada, status, "
                 "cliente:cliente_id ( id, nome, modelo, repasse ), "
                 "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
             ).eq("id", aloc_id).limit(1)
@@ -155,6 +155,7 @@ def _get_alocacao_by_id(aloc_id: str):
                     "valor": _to_float(r.get("valor")),
                     "percentual": _to_float(r.get("percentual")),
                     "efetivada": bool(r.get("efetivada")),
+                    "status": r.get("status") or "mapeado",
                     "cliente": r.get("cliente") or {},
                     "produto": r.get("produto") or {},
                 }
@@ -176,6 +177,7 @@ def _get_alocacao_by_id(aloc_id: str):
                 "valor": _to_float(getattr(a, "valor", 0)),
                 "percentual": _to_float(getattr(a, "percentual", 0)),
                 "efetivada": bool(getattr(a, "efetivada", False)) if hasattr(a, "efetivada") else False,
+                "status": getattr(a, "status", "mapeado") if hasattr(a, "status") else "mapeado",
                 "cliente": {
                     "id": getattr(c, "id", None),
                     "nome": getattr(c, "nome", "") if c else "",
@@ -209,7 +211,7 @@ def index():
         try:
             uid = _uid()
             q = supabase.table("alocacoes").select(
-                "id, percentual, valor, cliente_id, produto_id, efetivada, "
+                "id, percentual, valor, cliente_id, produto_id, efetivada, status, "
                 "cliente:cliente_id ( id, nome, modelo, repasse ), "
                 "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
             ).order("created_at", desc=False)
@@ -226,6 +228,7 @@ def index():
                     "cliente_id": r.get("cliente_id"),
                     "produto_id": r.get("produto_id"),
                     "efetivada": bool(r.get("efetivada")),
+                    "status": r.get("status") or "mapeado",
                     "cliente": (r.get("cliente") or {}),
                     "produto": (r.get("produto") or {}),
                 })
@@ -250,6 +253,7 @@ def index():
                     "cliente_id": getattr(a, "cliente_id", None),
                     "produto_id": getattr(a, "produto_id", None),
                     "efetivada": bool(getattr(a, "efetivada", False)) if hasattr(a, "efetivada") else False,
+                    "status": getattr(a, "status", "mapeado") if hasattr(a, "status") else "mapeado",
                     "cliente": {
                         "id": getattr(c, "id", None),
                         "nome": getattr(c, "nome", ""),
@@ -313,9 +317,23 @@ def index():
     totais_clientes = sorted(by_cliente.values(), key=lambda x: x["valor"], reverse=True)
     totais_produtos = sorted(by_produto.values(), key=lambda x: x["valor"], reverse=True)
 
+    # Organizar alocações por status para o kanban
+    kanban = {
+        "mapeado": [],
+        "apresentado": [],
+        "push_enviado": [],
+        "confirmado": []
+    }
+    
+    for a in enriched:
+        status = a.get("status", "mapeado")
+        if status in kanban:
+            kanban[status].append(a)
+
     return render_template(
         "alocacoes/index.html",
         alocacoes=enriched,
+        kanban=kanban,
         total_geral=total_geral,
         totais_clientes=totais_clientes,
         totais_produtos=totais_produtos,
@@ -501,6 +519,45 @@ def efetivar(aloc_id: str):
     if next_url:
         return redirect(next_url)
     return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
+
+
+# ---------------- ATUALIZAR STATUS ----------------
+@alocacoes_bp.route("/<string:aloc_id>/status", methods=["POST"])
+@login_required
+def atualizar_status(aloc_id: str):
+    new_status = request.form.get("status", "mapeado")
+    next_url = request.args.get("next") or request.form.get("next") or url_for("alocacoes.index")
+    
+    if new_status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
+        flash("Status inválido.", "error")
+        return redirect(next_url)
+    
+    if supabase:
+        try:
+            uid = _uid()
+            if not uid:
+                flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+                return redirect(next_url)
+            
+            q = supabase.table("alocacoes").update({"status": new_status}).eq("id", aloc_id).eq("user_id", uid)
+            q.execute()
+            flash("Status atualizado.", "success")
+        except Exception:
+            current_app.logger.exception("Falha ao atualizar status no Supabase")
+            flash("Falha ao atualizar status.", "error")
+    elif Alocacao:
+        try:
+            a = db.session.get(Alocacao, aloc_id)
+            if a and hasattr(a, "status"):
+                a.status = new_status
+                db.session.commit()
+                flash("Status atualizado (banco local).", "success")
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Falha ao atualizar status no banco local")
+            flash("Falha ao atualizar status.", "error")
+    
+    return redirect(next_url)
 
 
 # ---------------- EXCLUIR ALOCAÇÃO ----------------

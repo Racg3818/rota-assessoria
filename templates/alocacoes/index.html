@@ -6,6 +6,7 @@
 <div class="flex items-center justify-between mb-4">
   <h2 class="font-medium">Alocações</h2>
   <div class="flex gap-2">
+    <button onclick="toggleView()" id="toggleViewBtn" class="px-3 py-2 rounded border text-sm">Ver Tabela</button>
     <a href="{{ url_for('alocacoes.produtos') }}" class="px-3 py-2 rounded border text-sm">Produtos</a>
     <a href="{{ url_for('alocacoes.novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Nova alocação</a>
   </div>
@@ -63,8 +64,84 @@
   </div>
 </div>
 
+<!-- Kanban View -->
+<div id="kanbanView" class="mb-6">
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    {% set status_info = {
+      'mapeado': {'title': 'Mapeado', 'color': 'bg-gray-50 border-gray-200', 'text': 'text-gray-700'},
+      'apresentado': {'title': 'Apresentado', 'color': 'bg-blue-50 border-blue-200', 'text': 'text-blue-700'},
+      'push_enviado': {'title': 'Push Enviado', 'color': 'bg-yellow-50 border-yellow-200', 'text': 'text-yellow-700'},
+      'confirmado': {'title': 'Confirmado', 'color': 'bg-green-50 border-green-200', 'text': 'text-green-700'}
+    } %}
+    
+    {% for status, items in kanban.items() %}
+    <div class="border rounded-xl {{ status_info[status]['color'] }} p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-medium {{ status_info[status]['text'] }}">{{ status_info[status]['title'] }}</h3>
+        <span class="px-2 py-1 rounded-full text-xs {{ status_info[status]['color'] }} {{ status_info[status]['text'] }}">
+          {{ items|length }}
+        </span>
+      </div>
+      
+      <div class="space-y-2" data-status="{{ status }}" ondrop="drop(event)" ondragover="allowDrop(event)">
+        {% for item in items %}
+        <div class="bg-white border rounded-lg p-3 shadow-sm cursor-pointer kanban-item" 
+             draggable="true" 
+             ondragstart="drag(event)" 
+             data-id="{{ item.id }}"
+             data-status="{{ item.status }}">
+          <div class="text-sm font-medium mb-1">{{ item.cliente.nome }}</div>
+          <div class="text-xs text-gray-600 mb-2">{{ item.produto.nome }}</div>
+          <div class="text-xs text-gray-500 mb-2">{{ item.valor|brl }}</div>
+          
+          <!-- Status dropdown -->
+          <form method="post" action="{{ url_for('alocacoes.atualizar_status', aloc_id=item.id) }}" class="mb-2">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <select name="status" onchange="this.form.submit()" class="w-full text-xs border rounded px-2 py-1">
+              <option value="mapeado" {% if item.status == 'mapeado' %}selected{% endif %}>Mapeado</option>
+              <option value="apresentado" {% if item.status == 'apresentado' %}selected{% endif %}>Apresentado</option>
+              <option value="push_enviado" {% if item.status == 'push_enviado' %}selected{% endif %}>Push Enviado</option>
+              <option value="confirmado" {% if item.status == 'confirmado' %}selected{% endif %}>Confirmado</option>
+            </select>
+          </form>
+          
+          <!-- Checkbox Efetivada -->
+          <form method="post" action="{{ url_for('alocacoes.efetivar', aloc_id=item.id) }}" class="mb-2">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <label class="inline-flex items-center gap-1">
+              <input type="checkbox" name="efetivada"
+                     {% if item.efetivada %}checked{% endif %}
+                     onchange="this.form.submit()"
+                     class="rounded border-gray-300 text-xs">
+              <span class="text-xs text-gray-700">confirmada</span>
+            </label>
+          </form>
+          
+          <!-- Ações -->
+          <div class="flex gap-1 mt-2">
+            <a href="{{ url_for('alocacoes.editar', aloc_id=item.id) }}"
+               class="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50">Editar</a>
+            <form method="post" action="{{ url_for('alocacoes.excluir', aloc_id=item.id) }}"
+                  onsubmit="return confirm('Excluir esta alocação?')" class="inline">
+              <button class="px-2 py-1 text-xs rounded border text-red-600 bg-white hover:bg-red-50">Excluir</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+        
+        {% if items|length == 0 %}
+        <div class="text-xs text-gray-500 text-center py-4">
+          Nenhuma alocação neste status
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
 <!-- Tabela de alocações -->
-<div class="border rounded-xl overflow-hidden bg-white">
+<div id="tableView" class="border rounded-xl overflow-hidden bg-white" style="display: none;">
   <table class="min-w-full text-sm">
     <thead class="bg-gray-50 text-gray-600">
       <tr>
@@ -139,5 +216,83 @@
     </tbody>
   </table>
 </div>
+
+<script>
+// Toggle between kanban and table view
+function toggleView() {
+  const kanbanView = document.getElementById('kanbanView');
+  const tableView = document.getElementById('tableView');
+  const toggleBtn = document.getElementById('toggleViewBtn');
+  
+  if (kanbanView.style.display === 'none') {
+    kanbanView.style.display = 'block';
+    tableView.style.display = 'none';
+    toggleBtn.textContent = 'Ver Tabela';
+  } else {
+    kanbanView.style.display = 'none';
+    tableView.style.display = 'block';
+    toggleBtn.textContent = 'Ver Kanban';
+  }
+}
+
+// Drag and drop functionality
+let draggedElement = null;
+
+function allowDrop(ev) {
+  ev.preventDefault();
+}
+
+function drag(ev) {
+  draggedElement = ev.target;
+  ev.dataTransfer.setData("text", ev.target.getAttribute('data-id'));
+}
+
+function drop(ev) {
+  ev.preventDefault();
+  const newStatus = ev.currentTarget.getAttribute('data-status');
+  const alocacaoId = ev.dataTransfer.getData("text");
+  
+  if (draggedElement && draggedElement.getAttribute('data-status') !== newStatus) {
+    // Update status via AJAX
+    const formData = new FormData();
+    formData.append('status', newStatus);
+    formData.append('next', window.location.href);
+    
+    fetch(`/alocacoes/${alocacaoId}/status`, {
+      method: 'POST',
+      body: formData
+    }).then(response => {
+      if (response.ok) {
+        // Reload the page to show updated kanban
+        window.location.reload();
+      }
+    }).catch(error => {
+      console.error('Error updating status:', error);
+    });
+  }
+  
+  draggedElement = null;
+}
+
+// Add hover effects for drop zones
+document.addEventListener('DOMContentLoaded', function() {
+  const dropZones = document.querySelectorAll('[data-status]');
+  
+  dropZones.forEach(zone => {
+    zone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      this.classList.add('bg-opacity-50');
+    });
+    
+    zone.addEventListener('dragleave', function(e) {
+      this.classList.remove('bg-opacity-50');
+    });
+    
+    zone.addEventListener('drop', function(e) {
+      this.classList.remove('bg-opacity-50');
+    });
+  });
+});
+</script>
 
 {% endblock %}

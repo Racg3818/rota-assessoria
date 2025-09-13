@@ -65,6 +65,9 @@ class Alocacao(db.Model):
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
     produto_id = db.Column(db.Integer, db.ForeignKey("produtos.id"), nullable=False)
     percentual = db.Column(db.Float, default=0.0)  # % da carteira do cliente nesse produto
+    valor = db.Column(db.Float, default=0.0)  # valor da alocação
+    efetivada = db.Column(db.Boolean, default=False)  # confirmação final
+    status = db.Column(db.String(50), default='mapeado')  # mapeado, apresentado, push_enviado, confirmado
 
     cliente = db.relationship("Cliente", backref=db.backref("alocacoes", cascade="all, delete-orphan"))
     produto = db.relationship("Produto")
