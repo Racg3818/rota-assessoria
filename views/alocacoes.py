@@ -163,40 +163,6 @@ def _get_alocacao_by_id(aloc_id: str):
             current_app.logger.exception("Falha ao carregar alocação no Supabase")
             return None
 
-    if Alocacao:
-        try:
-            a = db.session.get(Alocacao, aloc_id)
-            if not a:
-                return None
-            c = db.session.get(Cliente, getattr(a, "cliente_id", None)) if Cliente else None
-            p = db.session.get(Produto, getattr(a, "produto_id", None)) if Produto else None
-            return {
-                "id": getattr(a, "id", aloc_id),
-                "cliente_id": getattr(a, "cliente_id", None),
-                "produto_id": getattr(a, "produto_id", None),
-                "valor": _to_float(getattr(a, "valor", 0)),
-                "percentual": _to_float(getattr(a, "percentual", 0)),
-                "efetivada": bool(getattr(a, "efetivada", False)) if hasattr(a, "efetivada") else False,
-                "status": getattr(a, "status", "mapeado") if hasattr(a, "status") else "mapeado",
-                "cliente": {
-                    "id": getattr(c, "id", None),
-                    "nome": getattr(c, "nome", "") if c else "",
-                    "modelo": getattr(c, "modelo", "") if c else "",
-                    "repasse": getattr(c, "repasse", 35) if c else 35,
-                } if c else {},
-                "produto": {
-                    "id": getattr(p, "id", None),
-                    "nome": getattr(p, "nome", "") if p else "",
-                    "classe": getattr(p, "classe", None) if p else None,
-                    "roa_pct": getattr(p, "roa_pct", None) if p else None,
-                    "em_campanha": getattr(p, "em_campanha", False) if p else False,
-                    "campanha_mes": getattr(p, "campanha_mes", None) if p else None,
-                } if p else {},
-            }
-        except Exception:
-            current_app.logger.exception("Falha ao carregar alocação no banco local")
-            return None
-
     return None
 
 
@@ -234,43 +200,6 @@ def index():
                 })
         except Exception:
             current_app.logger.exception("Falha ao listar alocações no Supabase")
-            alocacoes = []
-    elif Alocacao and Cliente and Produto:
-        try:
-            qs = (
-                db.session.query(Alocacao, Cliente, Produto)
-                .join(Cliente, Alocacao.cliente_id == Cliente.id)
-                .join(Produto, Alocacao.produto_id == Produto.id)
-                .order_by(Cliente.nome, Produto.nome)
-            )
-            if cliente_id_filter:
-                qs = qs.filter(Alocacao.cliente_id == cliente_id_filter)
-            for a, c, p in qs.all():
-                alocacoes.append({
-                    "id": getattr(a, "id", None),
-                    "percentual": _to_float(getattr(a, "percentual", 0)),
-                    "valor": _to_float(getattr(a, "valor", 0)),
-                    "cliente_id": getattr(a, "cliente_id", None),
-                    "produto_id": getattr(a, "produto_id", None),
-                    "efetivada": bool(getattr(a, "efetivada", False)) if hasattr(a, "efetivada") else False,
-                    "status": getattr(a, "status", "mapeado") if hasattr(a, "status") else "mapeado",
-                    "cliente": {
-                        "id": getattr(c, "id", None),
-                        "nome": getattr(c, "nome", ""),
-                        "modelo": getattr(c, "modelo", ""),
-                        "repasse": getattr(c, "repasse", 35),
-                    },
-                    "produto": {
-                        "id": getattr(p, "id", None),
-                        "nome": getattr(p, "nome", ""),
-                        "classe": getattr(p, "classe", None),
-                        "roa_pct": getattr(p, "roa_pct", None),
-                        "em_campanha": getattr(p, "em_campanha", False),
-                        "campanha_mes": getattr(p, "campanha_mes", None),
-                    },
-                })
-        except Exception:
-            current_app.logger.exception("Falha ao listar alocações no banco local")
             alocacoes = []
     else:
         alocacoes = []
@@ -366,56 +295,31 @@ def novo():
             flash("Selecione cliente e produto.", "error")
             return redirect(url_for("alocacoes.novo"))
 
-        if supabase:
-            try:
-                uid = _uid()
-                if not uid:
-                    flash("Sessão inválida: não foi possível identificar o usuário.", "error")
-                    return redirect(url_for("alocacoes.novo"))
+        if not supabase:
+            flash("Sistema indisponível. Tente novamente mais tarde.", "error")
+            return redirect(url_for("alocacoes.novo"))
 
-                supabase.table("alocacoes").insert({
-                    "cliente_id": cliente_id,
-                    "produto_id": produto_id,
-                    "valor": valor,
-                    "percentual": 0,
-                    "efetivada": False,
-                    "status": "mapeado",
-                    "user_id": uid,
-                }).execute()
-                flash("Alocação cadastrada.", "success")
-                return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
-            except Exception:
-                current_app.logger.exception("Falha ao inserir alocação no Supabase")
-                flash("Falha ao cadastrar alocação no Supabase.", "error")
+        try:
+            uid = _uid()
+            if not uid:
+                flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+                return redirect(url_for("alocacoes.novo"))
 
-        if Alocacao:
-            try:
-                uid = _uid()
-                if not uid:
-                    flash("Sessão inválida: não foi possível identificar o usuário.", "error")
-                    return redirect(url_for("alocacoes.novo"))
-                
-                kwargs = {"cliente_id": cliente_id, "produto_id": produto_id}
-                if hasattr(Alocacao, "user_id"):
-                    kwargs["user_id"] = uid
-                if hasattr(Alocacao, "valor"):
-                    kwargs["valor"] = valor
-                if hasattr(Alocacao, "percentual"):
-                    kwargs.setdefault("percentual", 0)
-                if hasattr(Alocacao, "efetivada"):
-                    kwargs.setdefault("efetivada", False)
-                if hasattr(Alocacao, "status"):
-                    kwargs.setdefault("status", "mapeado")
-                a = Alocacao(**kwargs)
-                db.session.add(a)
-                db.session.commit()
-                flash("Alocação cadastrada (banco local).", "success")
-                return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
-            except Exception:
-                current_app.logger.exception("Falha ao inserir alocação no banco local")
-                flash("Falha ao cadastrar alocação no banco local.", "error")
-
-        return redirect(url_for("alocacoes.novo"))
+            supabase.table("alocacoes").insert({
+                "cliente_id": cliente_id,
+                "produto_id": produto_id,
+                "valor": valor,
+                "percentual": 0,
+                "efetivada": False,
+                "status": "mapeado",
+                "user_id": uid,
+            }).execute()
+            flash("Alocação cadastrada com sucesso!", "success")
+            return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
+        except Exception as e:
+            current_app.logger.exception("Falha ao inserir alocação no Supabase")
+            flash(f"Erro ao cadastrar alocação: {str(e)}", "error")
+            return redirect(url_for("alocacoes.novo"))
 
     clientes, produtos = _carregar_clientes_produtos()
     return render_template("alocacoes/novo.html", clientes=clientes, produtos=produtos)
@@ -458,36 +362,8 @@ def editar(aloc_id: str):
                 current_app.logger.exception("Falha ao atualizar alocação no Supabase")
                 flash("Falha ao atualizar alocação no Supabase.", "error")
                 return redirect(url_for("alocacoes.editar", aloc_id=aloc_id))
-
-        if Alocacao:
-            try:
-                a = db.session.get(Alocacao, aloc_id)
-                if not a:
-                    flash("Alocação não encontrado (banco local).", "error")
-                    return redirect(url_for("alocacoes.index"))
-                if hasattr(a, "cliente_id"):
-                    a.cliente_id = cliente_id
-                if hasattr(a, "produto_id"):
-                    a.produto_id = produto_id
-                if hasattr(a, "valor"):
-                    a.valor = valor
-                if hasattr(a, "percentual"):
-                    a.percentual = percentual
-                if hasattr(a, "efetivada"):
-                    a.efetivada = efetivada
-                # Garantir que alocações existentes tenham status padrão
-                if hasattr(a, "status") and not getattr(a, "status", None):
-                    a.status = "mapeado"
-                db.session.commit()
-                flash("Alocação atualizada (banco local).", "success")
-                return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
-            except Exception:
-                db.session.rollback()
-                current_app.logger.exception("Falha ao atualizar alocação no banco local")
-                flash("Falha ao atualizar alocação no banco local.", "error")
-                return redirect(url_for("alocacoes.editar", aloc_id=aloc_id))
-
-        flash("Backend indisponível para atualizar alocação.", "error")
+        else:
+            flash("Sistema indisponível. Tente novamente mais tarde.", "error")
         return redirect(url_for("alocacoes.editar", aloc_id=aloc_id))
 
     clientes, produtos = _carregar_clientes_produtos()
@@ -520,17 +396,8 @@ def efetivar(aloc_id: str):
         except Exception:
             current_app.logger.exception("Falha ao atualizar flag efetivada no Supabase")
             flash("Falha ao atualizar alocação.", "error")
-    elif Alocacao:
-        try:
-            a = db.session.get(Alocacao, aloc_id)
-            if a and hasattr(a, "efetivada"):
-                a.efetivada = new_val
-                db.session.commit()
-                flash("Alocação atualizada (banco local).", "success")
-        except Exception:
-            db.session.rollback()
-            current_app.logger.exception("Falha ao atualizar flag efetivada no banco local")
-            flash("Falha ao atualizar alocação.", "error")
+    else:
+        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
 
     if next_url:
         return redirect(next_url)
@@ -561,17 +428,8 @@ def atualizar_status(aloc_id: str):
         except Exception:
             current_app.logger.exception("Falha ao atualizar status no Supabase")
             flash("Falha ao atualizar status.", "error")
-    elif Alocacao:
-        try:
-            a = db.session.get(Alocacao, aloc_id)
-            if a and hasattr(a, "status"):
-                a.status = new_status
-                db.session.commit()
-                flash("Status atualizado (banco local).", "success")
-        except Exception:
-            db.session.rollback()
-            current_app.logger.exception("Falha ao atualizar status no banco local")
-            flash("Falha ao atualizar status.", "error")
+    else:
+        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
     
     return redirect(next_url)
 
@@ -598,20 +456,9 @@ def excluir(aloc_id: str):
             current_app.logger.exception("Falha ao excluir alocação no Supabase")
             flash("Falha ao excluir alocação no Supabase.", "error")
             return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
-
-    if Alocacao:
-        try:
-            a = db.session.get(Alocacao, aloc_id)
-            if not a:
-                flash("Alocação não encontrada (banco local).", "error")
-                return redirect(url_for("alocacoes.index"))
-            db.session.delete(a)
-            db.session.commit()
-            flash("Alocação excluída (banco local).", "success")
-        except Exception:
-            db.session.rollback()
-            current_app.logger.exception("Falha ao excluir alocação no banco local")
-            flash("Falha ao excluir alocação no banco local.", "error")
+    else:
+        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
+        
     return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
 
 
