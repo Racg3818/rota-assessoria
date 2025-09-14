@@ -255,9 +255,16 @@ def index():
     }
     
     for a in enriched:
-        # Definir status baseado na efetivação (até coluna status ser criada)
-        if a.get("efetivada", False):
+        # Definir status baseado em efetivada e percentual (simulação até coluna status)
+        efetivada = a.get("efetivada", False)
+        percentual = a.get("percentual", 0)
+        
+        if efetivada:
             status = "confirmado"
+        elif percentual >= 75:
+            status = "push_enviado"
+        elif percentual >= 50:
+            status = "apresentado"  
         else:
             status = "mapeado"
         
@@ -423,17 +430,25 @@ def atualizar_status(aloc_id: str):
                 flash("Sessão inválida: não foi possível identificar o usuário.", "error")
                 return redirect(next_url)
             
-            # Lógica de efetivação baseada no status
-            efetivada = (new_status == "confirmado")
+            # Mapear status para campos existentes (simulação)
+            updates = {}
             
-            # Como não temos coluna status ainda, apenas atualizamos efetivada
-            q = supabase.table("alocacoes").update({"efetivada": efetivada}).eq("id", aloc_id).eq("user_id", uid)
+            if new_status == "mapeado":
+                updates = {"percentual": 0, "efetivada": False}
+            elif new_status == "apresentado":
+                updates = {"percentual": 50, "efetivada": False}
+            elif new_status == "push_enviado":
+                updates = {"percentual": 75, "efetivada": False}
+            elif new_status == "confirmado":
+                updates = {"percentual": 100, "efetivada": True}
+            
+            q = supabase.table("alocacoes").update(updates).eq("id", aloc_id).eq("user_id", uid)
             q.execute()
             
-            if efetivada:
+            if new_status == "confirmado":
                 flash("Alocação movida para Confirmado e marcada como efetivada!", "success")
             else:
-                flash("Status atualizado.", "success")
+                flash(f"Alocação movida para {new_status.replace('_', ' ').title()}.", "success")
         except Exception:
             current_app.logger.exception("Falha ao atualizar status no Supabase")
             flash("Falha ao atualizar status.", "error")
