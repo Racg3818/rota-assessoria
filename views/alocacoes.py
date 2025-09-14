@@ -255,11 +255,13 @@ def index():
     }
     
     for a in enriched:
-        status = a.get("status", "mapeado")
-        # Garantir que status seja válido, senão usar "mapeado"
-        if status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
+        # Definir status baseado na efetivação (até coluna status ser criada)
+        if a.get("efetivada", False):
+            status = "confirmado"
+        else:
             status = "mapeado"
-            a["status"] = status
+        
+        a["status"] = status
         kanban[status].append(a)
 
     return render_template(
@@ -404,12 +406,40 @@ def efetivar(aloc_id: str):
 
 
 # ---------------- ATUALIZAR STATUS ----------------
-# TEMPORARIAMENTE DESABILITADO - Aguardando criação da coluna 'status' no Supabase
 @alocacoes_bp.route("/<string:aloc_id>/status", methods=["POST"])
 @login_required
 def atualizar_status(aloc_id: str):
+    new_status = request.form.get("status", "mapeado")
     next_url = request.args.get("next") or request.form.get("next") or url_for("alocacoes.index")
-    flash("Funcionalidade temporariamente indisponível. Coluna 'status' será criada em breve.", "info")
+    
+    if new_status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
+        flash("Status inválido.", "error")
+        return redirect(next_url)
+    
+    if supabase:
+        try:
+            uid = _uid()
+            if not uid:
+                flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+                return redirect(next_url)
+            
+            # Lógica de efetivação baseada no status
+            efetivada = (new_status == "confirmado")
+            
+            # Como não temos coluna status ainda, apenas atualizamos efetivada
+            q = supabase.table("alocacoes").update({"efetivada": efetivada}).eq("id", aloc_id).eq("user_id", uid)
+            q.execute()
+            
+            if efetivada:
+                flash("Alocação movida para Confirmado e marcada como efetivada!", "success")
+            else:
+                flash("Status atualizado.", "success")
+        except Exception:
+            current_app.logger.exception("Falha ao atualizar status no Supabase")
+            flash("Falha ao atualizar status.", "error")
+    else:
+        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
+    
     return redirect(next_url)
 
 

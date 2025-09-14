@@ -105,7 +105,8 @@
             </select>
           </form>
           
-          <!-- Checkbox Efetivada -->
+          <!-- Checkbox Efetivada (apenas para status Confirmado) -->
+          {% if status == 'confirmado' %}
           <form method="post" action="{{ url_for('alocacoes.efetivar', aloc_id=item.id) }}" class="mb-2">
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <label class="inline-flex items-center gap-1">
@@ -116,6 +117,7 @@
               <span class="text-xs text-gray-700">confirmada</span>
             </label>
           </form>
+          {% endif %}
           
           <!-- Ações -->
           <div class="flex gap-1 mt-2">
