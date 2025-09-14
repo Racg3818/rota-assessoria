@@ -83,13 +83,14 @@
         </span>
       </div>
       
-      <div class="space-y-2" data-status="{{ status }}" ondrop="drop(event)" ondragover="allowDrop(event)">
+      <div class="space-y-2 min-h-[100px] transition-all duration-200" data-status="{{ status }}" ondrop="drop(event)" ondragover="allowDrop(event)">
         {% for item in items %}
-        <div class="bg-white border rounded-lg p-3 shadow-sm cursor-pointer kanban-item" 
+        <div class="bg-white border rounded-lg p-3 shadow-sm cursor-pointer kanban-item transition-all duration-200 hover:shadow-md" 
              draggable="true" 
              ondragstart="drag(event)" 
              data-id="{{ item.id }}"
-             data-status="{{ item.status }}">
+             data-status="{{ item.status }}"
+             style="transition: opacity 0.3s ease, background-color 0.5s ease;">
           <div class="text-sm font-medium mb-1">{{ item.cliente.nome }}</div>
           <div class="text-xs text-gray-600 mb-2">{{ item.produto.nome }}</div>
           <div class="text-xs text-gray-500 mb-2">{{ item.valor|brl }}</div>
@@ -243,25 +244,47 @@ function drop(ev) {
   const dropZone = ev.currentTarget;
   const newStatus = dropZone.getAttribute('data-status');
   const alocacaoId = ev.dataTransfer.getData("text");
+  const originalParent = draggedElement.parentNode;
   
   if (draggedElement && draggedElement.getAttribute('data-status') !== newStatus) {
-    // Update status via AJAX
+    // 1. Mover visualmente IMEDIATAMENTE (otimistic update)
+    draggedElement.setAttribute('data-status', newStatus);
+    dropZone.appendChild(draggedElement);
+    updateColumnCounts();
+    
+    // 2. Mostrar feedback visual
+    draggedElement.style.opacity = '0.7';
+    
+    // 3. Atualizar no backend em segundo plano
     const formData = new FormData();
     formData.append('status', newStatus);
-    formData.append('next', window.location.href);
     
     fetch(`/alocacoes/${alocacaoId}/status`, {
       method: 'POST',
       body: formData
     }).then(response => {
       if (response.ok) {
-        // Reload página para garantir sincronização
-        window.location.reload();
+        // Sucesso - confirmar visualmente
+        draggedElement.style.opacity = '1';
+        draggedElement.classList.add('bg-green-50');
+        setTimeout(() => {
+          draggedElement.classList.remove('bg-green-50');
+        }, 1000);
       } else {
+        // Erro - reverter posição
+        originalParent.appendChild(draggedElement);
+        draggedElement.setAttribute('data-status', originalParent.getAttribute('data-status'));
+        draggedElement.style.opacity = '1';
+        updateColumnCounts();
         showErrorMessage('Erro ao mover alocação');
       }
     }).catch(error => {
+      // Erro de conexão - reverter posição
       console.error('Error updating status:', error);
+      originalParent.appendChild(draggedElement);
+      draggedElement.setAttribute('data-status', originalParent.getAttribute('data-status'));
+      draggedElement.style.opacity = '1';
+      updateColumnCounts();
       showErrorMessage('Erro de conexão');
     });
   }
@@ -269,6 +292,21 @@ function drop(ev) {
   draggedElement = null;
 }
 
+function updateColumnCounts() {
+  // Atualizar contadores de cada coluna
+  const columns = document.querySelectorAll('[data-status]');
+  columns.forEach(column => {
+    const status = column.getAttribute('data-status');
+    const count = column.querySelectorAll('.kanban-item').length;
+    
+    // Encontrar o contador da coluna
+    const header = column.closest('.border.rounded-xl');
+    const counter = header.querySelector('.rounded-full');
+    if (counter) {
+      counter.textContent = count;
+    }
+  });
+}
 
 function showErrorMessage(message) {
   const alert = document.createElement('div');
@@ -278,22 +316,37 @@ function showErrorMessage(message) {
   setTimeout(() => document.body.removeChild(alert), 3000);
 }
 
-// Add hover effects for drop zones
+// Add visual effects for drag and drop
 document.addEventListener('DOMContentLoaded', function() {
   const dropZones = document.querySelectorAll('[data-status]');
   
   dropZones.forEach(zone => {
     zone.addEventListener('dragover', function(e) {
       e.preventDefault();
-      this.classList.add('bg-opacity-50');
+      this.classList.add('ring-2', 'ring-blue-300', 'bg-blue-50');
     });
     
     zone.addEventListener('dragleave', function(e) {
-      this.classList.remove('bg-opacity-50');
+      // Só remove se realmente saiu da zona (não de um filho)
+      if (!this.contains(e.relatedTarget)) {
+        this.classList.remove('ring-2', 'ring-blue-300', 'bg-blue-50');
+      }
     });
     
     zone.addEventListener('drop', function(e) {
-      this.classList.remove('bg-opacity-50');
+      this.classList.remove('ring-2', 'ring-blue-300', 'bg-blue-50');
+    });
+  });
+  
+  // Adicionar efeitos aos items durante o drag
+  const items = document.querySelectorAll('.kanban-item');
+  items.forEach(item => {
+    item.addEventListener('dragstart', function(e) {
+      this.classList.add('opacity-50', 'rotate-2', 'scale-105');
+    });
+    
+    item.addEventListener('dragend', function(e) {
+      this.classList.remove('opacity-50', 'rotate-2', 'scale-105');
     });
   });
 });
