@@ -121,15 +121,6 @@ def _carregar_clientes_produtos():
         except Exception:
             current_app.logger.exception("Falha ao carregar produtos do Supabase")
             produtos = []
-    elif Cliente and Produto:
-        try:
-            clientes = db.session.query(Cliente).order_by(Cliente.nome).all()
-        except Exception:
-            clientes = []
-        try:
-            produtos = db.session.query(Produto).order_by(Produto.nome).all()
-        except Exception:
-            produtos = []
     return clientes, produtos
 
 

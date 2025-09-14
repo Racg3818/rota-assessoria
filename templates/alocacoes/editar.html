@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Editar Alocação — Rota Assessoria{% endblock %}
+{% block subtitle %}Editar dados da alocação{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Editar Alocação</h2>
+  <a href="{{ url_for('alocacoes.index') }}" class="px-3 py-2 rounded border text-sm">← Voltar</a>
+</div>
+
+<div class="border rounded-xl p-6 bg-white">
+  <form method="post">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <!-- Cliente -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Cliente</label>
+        <select name="cliente_id" class="w-full border rounded px-3 py-2" required>
+          <option value="">Selecione um cliente</option>
+          {% for cliente in clientes %}
+          <option value="{{ cliente.id }}" {% if cliente.id == alocacao.cliente_id %}selected{% endif %}>
+            {{ cliente.nome }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Produto -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Produto</label>
+        <select name="produto_id" class="w-full border rounded px-3 py-2" required>
+          <option value="">Selecione um produto</option>
+          {% for produto in produtos %}
+          <option value="{{ produto.id }}" {% if produto.id == alocacao.produto_id %}selected{% endif %}>
+            {{ produto.nome }} - {{ produto.classe or 'Sem classe' }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <!-- Valor -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Valor (R$)</label>
+        <input type="number" name="valor" step="0.01" 
+               value="{{ alocacao.valor or '' }}"
+               class="w-full border rounded px-3 py-2" 
+               placeholder="0.00">
+      </div>
+
+      <!-- Percentual -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Percentual (%)</label>
+        <input type="number" name="percentual" step="0.01" 
+               value="{{ alocacao.percentual or '' }}"
+               class="w-full border rounded px-3 py-2" 
+               placeholder="0.00">
+      </div>
+    </div>
+
+    <!-- Efetivada -->
+    <div class="mb-6">
+      <label class="inline-flex items-center">
+        <input type="checkbox" name="efetivada" 
+               {% if alocacao.efetivada %}checked{% endif %}
+               class="rounded border-gray-300">
+        <span class="ml-2 text-sm text-gray-700">Alocação confirmada/efetivada</span>
+      </label>
+    </div>
+
+    <div class="flex gap-2">
+      <button type="submit" class="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800">
+        Salvar Alterações
+      </button>
+      <a href="{{ url_for('alocacoes.index') }}" class="px-4 py-2 border rounded hover:bg-gray-50">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

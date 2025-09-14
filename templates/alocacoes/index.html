@@ -245,12 +245,6 @@ function drop(ev) {
   const alocacaoId = ev.dataTransfer.getData("text");
   
   if (draggedElement && draggedElement.getAttribute('data-status') !== newStatus) {
-    // Mostrar indicador de carregamento
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.className = 'text-xs text-gray-500 text-center py-2';
-    loadingIndicator.textContent = 'Atualizando...';
-    dropZone.appendChild(loadingIndicator);
-    
     // Update status via AJAX
     const formData = new FormData();
     formData.append('status', newStatus);
@@ -261,23 +255,13 @@ function drop(ev) {
       body: formData
     }).then(response => {
       if (response.ok) {
-        // Atualizar em tempo real sem reload completo
-        draggedElement.setAttribute('data-status', newStatus);
-        dropZone.insertBefore(draggedElement, loadingIndicator);
-        dropZone.removeChild(loadingIndicator);
-        
-        // Atualizar contadores das colunas
-        updateColumnCounts();
-        
-        // Mostrar mensagem de sucesso brevemente
-        showSuccessMessage(`Alocação movida para ${getStatusLabel(newStatus)}`);
+        // Reload página para garantir sincronização
+        window.location.reload();
       } else {
-        dropZone.removeChild(loadingIndicator);
         showErrorMessage('Erro ao mover alocação');
       }
     }).catch(error => {
       console.error('Error updating status:', error);
-      dropZone.removeChild(loadingIndicator);
       showErrorMessage('Erro de conexão');
     });
   }
@@ -285,34 +269,6 @@ function drop(ev) {
   draggedElement = null;
 }
 
-function getStatusLabel(status) {
-  const labels = {
-    'mapeado': 'Mapeado',
-    'apresentado': 'Apresentado', 
-    'push_enviado': 'Push Enviado',
-    'confirmado': 'Confirmado'
-  };
-  return labels[status] || status;
-}
-
-function updateColumnCounts() {
-  document.querySelectorAll('[data-status]').forEach(column => {
-    const status = column.getAttribute('data-status');
-    const count = column.querySelectorAll('.kanban-item').length;
-    const counter = column.parentElement.querySelector(`[data-status="${status}"] + * .rounded-full`);
-    if (counter) {
-      counter.textContent = count;
-    }
-  });
-}
-
-function showSuccessMessage(message) {
-  const alert = document.createElement('div');
-  alert.className = 'fixed top-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50';
-  alert.textContent = message;
-  document.body.appendChild(alert);
-  setTimeout(() => document.body.removeChild(alert), 3000);
-}
 
 function showErrorMessage(message) {
   const alert = document.createElement('div');
