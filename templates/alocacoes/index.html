@@ -7,60 +7,149 @@
   <h2 class="font-medium">Alocações</h2>
   <div class="flex gap-2">
     <button onclick="toggleView()" id="toggleViewBtn" class="px-3 py-2 rounded border text-sm">Ver Tabela</button>
+    <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="px-3 py-2 rounded border text-sm">Metas Escritório</a>
     <a href="{{ url_for('alocacoes.produtos') }}" class="px-3 py-2 rounded border text-sm">Produtos</a>
     <a href="{{ url_for('alocacoes.novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Nova alocação</a>
   </div>
 </div>
 
-<!-- KPIs -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+<!-- KPIs de Receitas (apenas confirmados) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Total alocado</div>
-    <div class="text-2xl font-semibold">{{ total_geral|brl }}</div>
+    <div class="text-sm text-gray-500">Receita Escritório (confirmados)</div>
+    <div class="text-2xl font-semibold text-green-700" data-receita="escritorio">{{ total_rec_escritorio|brl }}</div>
   </div>
 
   <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita Escritório (total)</div>
-    <div class="text-2xl font-semibold">{{ total_rec_escritorio|brl }}</div>
+    <div class="text-sm text-gray-500">Receita Assessor (confirmados)</div>
+    <div class="text-2xl font-semibold text-green-700" data-receita="assessor">{{ total_rec_assessor|brl }}</div>
   </div>
 
   <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita Assessor (total)</div>
-    <div class="text-2xl font-semibold">{{ total_rec_assessor|brl }}</div>
-  </div>
-
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500 mb-2">Totais por produto</div>
-    {% if totais_produtos and totais_produtos|length > 0 %}
-      <ul class="text-sm space-y-1 max-h-44 overflow-auto pr-1">
-        {% for item in totais_produtos %}
-          <li class="flex justify-between">
-            <span class="truncate">{{ item.nome }}</span>
-            <span class="font-medium">{{ item.valor|brl }}</span>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="text-sm text-gray-500">—</div>
-    {% endif %}
+    <div class="text-sm text-gray-500 mb-2">Gráfico Receita por Produto</div>
+    <div class="flex justify-center">
+      <canvas id="receitaChart" width="120" height="120"></canvas>
+    </div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500 mb-2">Totais por cliente</div>
-    {% if totais_clientes and totais_clientes|length > 0 %}
-      <ul class="text-sm space-y-1 max-h-44 overflow-auto pr-1">
-        {% for item in totais_clientes %}
-          <li class="flex justify-between">
-            <span class="truncate">{{ item.nome }}</span>
-            <span class="font-medium">{{ item.valor|brl }}</span>
-          </li>
+<!-- SIMULADOR DE META -->
+{% if simulador_meta.falta_receita > 0 %}
+<div class="border rounded-xl p-6 bg-gradient-to-r from-blue-50 to-indigo-50 mb-6">
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-2xl">🎯</span>
+    <h3 class="text-lg font-semibold text-gray-800">Simulador de Meta - {{ simulador_meta.mes_atual }}</h3>
+  </div>
+  
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white border rounded-lg p-4 text-center">
+      <div class="text-sm text-gray-600">Meta do Mês</div>
+      <div class="text-xl font-bold text-blue-700">{{ simulador_meta.meta_mes|brl }}</div>
+    </div>
+    <div class="bg-white border rounded-lg p-4 text-center">
+      <div class="text-sm text-gray-600">Receita Ativa</div>
+      <div class="text-xl font-bold text-green-700">{{ simulador_meta.receita_atual|brl }}</div>
+    </div>
+    <div class="bg-white border rounded-lg p-4 text-center">
+      <div class="text-sm text-gray-600">Receita Passiva</div>
+      <div class="text-xl font-bold text-purple-700">{{ simulador_meta.receita_passiva|brl }}</div>
+    </div>
+    <div class="bg-white border rounded-lg p-4 text-center">
+      <div class="text-sm text-gray-600">Falta Atingir</div>
+      <div class="text-xl font-bold text-red-700">{{ simulador_meta.falta_receita|brl }}</div>
+    </div>
+  </div>
+
+  <!-- Tabela de Produtos -->
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="text-left px-4 py-3 font-medium text-gray-700">Produto</th>
+          <th class="text-left px-4 py-3 font-medium text-gray-700">Classe</th>
+          <th class="text-center px-4 py-3 font-medium text-gray-700">ROA</th>
+          <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Necessário</th>
+          <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Restante</th>
+          <th class="text-center px-4 py-3 font-medium text-gray-700">Status Meta</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for produto in simulador_meta.produtos_sugestao %}
+        <tr class="border-t hover:bg-gray-50">
+          <td class="px-4 py-3">
+            <div class="font-medium text-gray-900">{{ produto.nome }}</div>
+            {% if produto.em_campanha %}
+            <div class="text-xs text-orange-600 flex items-center gap-1 mt-1">
+              🎪 <span>Em Campanha</span>
+            </div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-600">{{ produto.classe }}</td>
+          <td class="px-4 py-3 text-center">
+            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+              {{ produto.roa_pct }}%
+            </span>
+          </td>
+          <td class="px-4 py-3 text-right font-medium text-blue-700">
+            {{ produto.valor_necessario|brl }}
+          </td>
+          <td class="px-4 py-3 text-right font-medium text-red-600">
+            {{ produto.valor_restante|brl }}
+          </td>
+          <td class="px-4 py-3 text-center">
+            {% if produto.valor_restante <= 0 %}
+              <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                ✅ Batida
+              </span>
+            {% else %}
+              <span class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
+                ❌ Pendente
+              </span>
+            {% endif %}
+          </td>
+        </tr>
         {% endfor %}
-      </ul>
-    {% else %}
-      <div class="text-sm text-gray-500">—</div>
-    {% endif %}
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="mt-4 text-xs text-gray-500">
+    💡 <strong>Dica:</strong> Valores calculados por classe com base nas <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="text-blue-600 underline">Metas Escritório</a>. Produtos da mesma classe competem proporcionalmente pelo ROA. Considera repasse médio de 42,5% e desconta receita passiva.
+  </div>
+</div>
+{% elif simulador_meta.meta_mes > 0 %}
+<div class="border rounded-xl p-4 bg-green-50 mb-6 text-center">
+  <span class="text-2xl">🎉</span>
+  <div class="text-lg font-semibold text-green-800 mt-2">Meta Atingida!</div>
+  <div class="text-sm text-green-600 mt-1">
+    Total (Ativa + Passiva): {{ simulador_meta.receita_total_esperada|brl }} / Meta: {{ simulador_meta.meta_mes|brl }}
+  </div>
+  <div class="text-xs text-green-500 mt-1">
+    Ativa: {{ simulador_meta.receita_atual|brl }} + Passiva: {{ simulador_meta.receita_passiva|brl }}
+  </div>
+</div>
+{% endif %}
+
+<!-- KPIs por Status (acima das colunas do kanban) -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+  <div class="border rounded-xl p-3 bg-gray-50">
+    <div class="text-sm text-gray-600">Total Mapeado</div>
+    <div class="text-xl font-semibold text-gray-700">{{ totais_por_status.mapeado|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-3 bg-blue-50">
+    <div class="text-sm text-blue-600">Total Apresentado</div>
+    <div class="text-xl font-semibold text-blue-700">{{ totais_por_status.apresentado|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-3 bg-yellow-50">
+    <div class="text-sm text-yellow-600">Total Push Enviado</div>
+    <div class="text-xl font-semibold text-yellow-700">{{ totais_por_status.push_enviado|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-3 bg-green-50">
+    <div class="text-sm text-green-600">Total Confirmado</div>
+    <div class="text-xl font-semibold text-green-700">{{ totais_por_status.confirmado|brl }}</div>
   </div>
 </div>
 
@@ -94,20 +183,6 @@
           <div class="text-sm font-medium mb-1">{{ item.cliente.nome }}</div>
           <div class="text-xs text-gray-600 mb-2">{{ item.produto.nome }}</div>
           <div class="text-xs text-gray-500 mb-2">{{ item.valor|brl }}</div>
-          
-          <!-- Checkbox Efetivada (apenas para status Confirmado) -->
-          {% if status == 'confirmado' %}
-          <form method="post" action="{{ url_for('alocacoes.efetivar', aloc_id=item.id) }}" class="mb-2">
-            <input type="hidden" name="next" value="{{ request.full_path }}">
-            <label class="inline-flex items-center gap-1">
-              <input type="checkbox" name="efetivada"
-                     {% if item.efetivada %}checked{% endif %}
-                     onchange="this.form.submit()"
-                     class="rounded border-gray-300 text-xs">
-              <span class="text-xs text-gray-700">confirmada</span>
-            </label>
-          </form>
-          {% endif %}
           
           <!-- Ações -->
           <div class="flex gap-1 mt-2">
@@ -209,6 +284,25 @@
   </table>
 </div>
 
+<!-- Totais por cliente -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 mt-6">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500 mb-2">Totais por cliente</div>
+    {% if totais_clientes and totais_clientes|length > 0 %}
+      <ul class="text-sm space-y-1 max-h-44 overflow-auto pr-1">
+        {% for item in totais_clientes %}
+          <li class="flex justify-between">
+            <span class="truncate">{{ item.nome }}</span>
+            <span class="font-medium">{{ item.valor|brl }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="text-sm text-gray-500">—</div>
+    {% endif %}
+  </div>
+</div>
+
 <script>
 // Toggle between kanban and table view
 function toggleView() {
@@ -261,10 +355,18 @@ function drop(ev) {
     
     fetch(`/alocacoes/${alocacaoId}/status`, {
       method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      },
       body: formData
     }).then(response => {
-      if (response.ok) {
-        // Sucesso - confirmar visualmente
+      console.log('Status response:', response.status);
+      return response.json();
+    }).then(data => {
+      console.log('Response data:', data);
+      if (data.success) {
+        // Sucesso - confirmar visualmente sem recarregar página
+        console.log('Alocação movida com sucesso');
         draggedElement.style.opacity = '1';
         draggedElement.classList.add('bg-green-50');
         setTimeout(() => {
@@ -276,7 +378,7 @@ function drop(ev) {
         draggedElement.setAttribute('data-status', originalParent.getAttribute('data-status'));
         draggedElement.style.opacity = '1';
         updateColumnCounts();
-        showErrorMessage('Erro ao mover alocação');
+        showErrorMessage(data.message || 'Erro ao mover alocação');
       }
     }).catch(error => {
       // Erro de conexão - reverter posição
@@ -316,6 +418,76 @@ function showErrorMessage(message) {
   setTimeout(() => document.body.removeChild(alert), 3000);
 }
 
+function updateReceitas() {
+  console.log('updateReceitas() chamada');
+  // Buscar receitas atualizadas do servidor
+  fetch('/alocacoes/receitas-ajax', {
+    method: 'GET',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    }
+  })
+  .then(response => {
+    console.log('Response status:', response.status);
+    return response.json();
+  })
+  .then(data => {
+    console.log('Dados recebidos:', data);
+    
+    // Atualizar receita escritório
+    const recEscritorio = document.querySelector('[data-receita="escritorio"]');
+    if (recEscritorio && data.receita_escritorio !== undefined) {
+      console.log('Atualizando receita escritório de', recEscritorio.textContent, 'para', formatCurrency(data.receita_escritorio));
+      recEscritorio.textContent = formatCurrency(data.receita_escritorio);
+    } else {
+      console.log('Elemento receita escritório não encontrado ou dados inválidos');
+    }
+    
+    // Atualizar receita assessor
+    const recAssessor = document.querySelector('[data-receita="assessor"]');
+    if (recAssessor && data.receita_assessor !== undefined) {
+      console.log('Atualizando receita assessor de', recAssessor.textContent, 'para', formatCurrency(data.receita_assessor));
+      recAssessor.textContent = formatCurrency(data.receita_assessor);
+    } else {
+      console.log('Elemento receita assessor não encontrado ou dados inválidos');
+    }
+    
+    // Atualizar gráfico donut se houver novos dados
+    if (data.receitas_por_produto && window.receitaChart) {
+      console.log('Atualizando gráfico com:', data.receitas_por_produto);
+      updateChart(data.receitas_por_produto);
+    }
+  })
+  .catch(error => {
+    console.error('Erro ao atualizar receitas:', error);
+  });
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  }).format(value);
+}
+
+function updateChart(receitas_por_produto) {
+  if (!window.receitaChart || !receitas_por_produto) return;
+  
+  // Cores para o gráfico
+  const cores = [
+    '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+    '#F97316', '#06B6D4', '#84CC16', '#EC4899', '#6B7280'
+  ];
+  
+  // Atualizar dados do gráfico
+  window.receitaChart.data.labels = receitas_por_produto.map(item => item.nome);
+  window.receitaChart.data.datasets[0].data = receitas_por_produto.map(item => item.receita);
+  window.receitaChart.data.datasets[0].backgroundColor = cores.slice(0, receitas_por_produto.length);
+  
+  // Re-renderizar o gráfico
+  window.receitaChart.update('none'); // Sem animação para atualização rápida
+}
+
 // Add visual effects for drag and drop
 document.addEventListener('DOMContentLoaded', function() {
   const dropZones = document.querySelectorAll('[data-status]');
@@ -350,6 +522,66 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 });
+
+// Gráfico Donut de Receita por Produto
+document.addEventListener('DOMContentLoaded', function() {
+  const ctx = document.getElementById('receitaChart').getContext('2d');
+  
+  const receitaData = [
+    {% for produto in receitas_por_produto %}
+    {
+      label: '{{ produto.nome }}',
+      data: {{ produto.receita }}
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+  
+  // Cores para o gráfico
+  const cores = [
+    '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+    '#F97316', '#06B6D4', '#84CC16', '#EC4899', '#6B7280'
+  ];
+  
+  const chart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: receitaData.map(item => item.label),
+      datasets: [{
+        data: receitaData.map(item => item.data),
+        backgroundColor: cores.slice(0, receitaData.length),
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const value = context.raw;
+              const formatter = new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+              });
+              return context.label + ': ' + formatter.format(value);
+            }
+          }
+        }
+      }
+    }
+  });
+  
+  // Armazenar referência global para atualizações
+  window.receitaChart = chart;
+});
 </script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 {% endblock %}

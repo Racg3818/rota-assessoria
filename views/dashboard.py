@@ -147,9 +147,10 @@ def _select_receita_table():
             return primary
 
 
-@dash_bp.route("/salvar-meta", methods=["POST"], strict_slashes=False)
-@login_required
-def salvar_meta():
+# Rota desabilitada - metas agora são gerenciadas via Metas Escritório
+# @dash_bp.route("/salvar-meta", methods=["POST"], strict_slashes=False)
+# @login_required
+def salvar_meta_deprecated():
     mes = (request.form.get("mes") or "").strip()
     try:
         meta_receita = float(request.form.get("meta_receita") or 0)

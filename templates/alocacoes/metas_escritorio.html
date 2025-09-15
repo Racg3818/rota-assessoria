@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Metas Escritório — Rota Assessoria{% endblock %}
+{% block subtitle %}Definir metas de receita por classe de produto{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Metas Escritório por Classe</h2>
+  <a href="{{ url_for('alocacoes.index') }}" class="px-3 py-2 rounded border text-sm">← Voltar</a>
+</div>
+
+<!-- Resumo das metas -->
+<div class="border rounded-xl p-4 bg-blue-50 mb-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-sm text-blue-600">Total das Metas - {{ mes_atual }}</div>
+      <div class="text-2xl font-bold text-blue-800">{{ total_metas|brl }}</div>
+    </div>
+    <div class="text-4xl">🎯</div>
+  </div>
+</div>
+
+<!-- Formulário de metas -->
+<div class="border rounded-xl p-6 bg-white">
+  <form method="post" action="{{ url_for('alocacoes.salvar_metas_escritorio') }}">
+    
+    <!-- Mês -->
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Mês (YYYY-MM)</label>
+      <input type="text" name="mes" value="{{ mes_atual }}" 
+             class="w-full md:w-48 border rounded px-3 py-2" 
+             placeholder="2025-01" required>
+    </div>
+
+    <!-- Grid de metas por classe -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      {% for meta in metas %}
+      <div class="border rounded-lg p-4 hover:bg-gray-50">
+        <label class="block text-sm font-medium text-gray-700 mb-2">
+          {{ meta.classe }}
+        </label>
+        <div class="flex items-center">
+          <span class="text-gray-500 mr-2">R$</span>
+          <input type="number" 
+                 name="meta_{{ meta.classe }}" 
+                 value="{{ meta.meta_receita if meta.meta_receita > 0 else '' }}"
+                 step="0.01" 
+                 min="0"
+                 class="flex-1 border rounded px-3 py-2" 
+                 placeholder="0,00">
+        </div>
+        <div class="text-xs text-gray-500 mt-1">
+          Deixe 0 ou vazio se não houver meta para esta classe
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Ações -->
+    <div class="flex gap-2">
+      <button type="submit" class="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800">
+        Salvar Metas
+      </button>
+      <a href="{{ url_for('alocacoes.index') }}" class="px-4 py-2 border rounded hover:bg-gray-50">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- Dicas -->
+<div class="mt-6 text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
+  <div class="font-medium mb-2">💡 Dicas:</div>
+  <ul class="space-y-1">
+    <li>• <strong>Meta 0</strong>: Classe sem meta definida (não aparecerá no simulador)</li>
+    <li>• <strong>Total das metas</strong>: Deve corresponder à sua meta geral do escritório</li>
+    <li>• <strong>Classes</strong>: Mesmas disponíveis no cadastro de produtos</li>
+    <li>• <strong>Simulador</strong>: Usará essas metas para calcular alocações por classe</li>
+  </ul>
+</div>
+
+<script>
+// Calcular total em tempo real
+document.addEventListener('DOMContentLoaded', function() {
+  const inputs = document.querySelectorAll('input[name^="meta_"]');
+  const totalElement = document.querySelector('.text-2xl.font-bold');
+  
+  function calcularTotal() {
+    let total = 0;
+    inputs.forEach(input => {
+      const valor = parseFloat(input.value) || 0;
+      total += valor;
+    });
+    
+    // Formatação brasileira
+    const formatter = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    });
+    
+    totalElement.textContent = formatter.format(total);
+  }
+  
+  // Atualizar total quando qualquer input mudar
+  inputs.forEach(input => {
+    input.addEventListener('input', calcularTotal);
+  });
+});
+</script>
+
+{% endblock %}

@@ -195,11 +195,19 @@ def index():
     else:
         alocacoes = []
 
+    # Contadores por status
+    totais_por_status = {
+        "mapeado": 0.0,
+        "apresentado": 0.0, 
+        "push_enviado": 0.0,
+        "confirmado": 0.0
+    }
+    
     total_geral = 0.0
     total_rec_escritorio = 0.0
     total_rec_assessor = 0.0
     by_cliente = {}
-    by_produto = {}
+    by_produto_receita = {}  # Para gráfico donut (apenas confirmados)
 
     enriched = []
     for a in alocacoes:
@@ -212,30 +220,53 @@ def index():
         classe = produto.get("classe") or ""
         roa_pct = _to_float(produto.get("roa_pct"))
 
+        # Definir status baseado em efetivada e percentual
+        efetivada = a.get("efetivada", False)
+        percentual = _to_float(a.get("percentual", 0))
+        
+        if efetivada:
+            status = "confirmado"
+        elif percentual >= 75:
+            status = "push_enviado"
+        elif percentual >= 50:
+            status = "apresentado"  
+        else:
+            status = "mapeado"
+
+        # Calcular receitas
         rec_escr, rec_ass, rec_base = _calc_receitas(valor, roa_pct, repasse, modelo, classe)
 
+        # Somar no total geral sempre
         total_geral += valor
-        total_rec_escritorio += rec_escr
-        total_rec_assessor += rec_ass
+        totais_por_status[status] += valor
+        
+        # Receitas só para confirmados
+        if status == "confirmado":
+            total_rec_escritorio += rec_escr
+            total_rec_assessor += rec_ass
+            
+            # Para o gráfico donut
+            pid, pnome = produto.get("id"), produto.get("nome") or ""
+            if pid:
+                acc = by_produto_receita.setdefault(pid, {"nome": pnome, "receita": 0.0})
+                acc["receita"] += rec_escr
 
+        # By cliente (todos os status)
         cid, cnome = cliente.get("id"), cliente.get("nome") or ""
-        pid, pnome = produto.get("id"), produto.get("nome") or ""
         if cid:
             acc = by_cliente.setdefault(cid, {"nome": cnome, "valor": 0.0})
-            acc["valor"] += valor
-        if pid:
-            acc = by_produto.setdefault(pid, {"nome": pnome, "valor": 0.0})
             acc["valor"] += valor
 
         b = dict(a)
         b["receita_base"] = rec_base
-        b["receita_escritorio"] = rec_escr
-        b["receita_assessor"] = rec_ass
+        b["receita_escritorio"] = rec_escr if status == "confirmado" else 0.0
+        b["receita_assessor"] = rec_ass if status == "confirmado" else 0.0
         b["repasse"] = repasse
+        b["status"] = status
         enriched.append(b)
 
     totais_clientes = sorted(by_cliente.values(), key=lambda x: x["valor"], reverse=True)
-    totais_produtos = sorted(by_produto.values(), key=lambda x: x["valor"], reverse=True)
+    receitas_por_produto = sorted(by_produto_receita.values(), key=lambda x: x["receita"], reverse=True)
 
     # Organizar alocações por status para o kanban
     kanban = {
@@ -246,32 +277,36 @@ def index():
     }
     
     for a in enriched:
-        # Definir status baseado em efetivada e percentual (simulação até coluna status)
-        efetivada = a.get("efetivada", False)
-        percentual = a.get("percentual", 0)
-        
-        if efetivada:
-            status = "confirmado"
-        elif percentual >= 75:
-            status = "push_enviado"
-        elif percentual >= 50:
-            status = "apresentado"  
-        else:
-            status = "mapeado"
-        
-        a["status"] = status
+        status = a.get("status", "mapeado")
         kanban[status].append(a)
+
+    # Buscar produtos para o simulador de meta
+    produtos_data = []
+    if supabase:
+        try:
+            uid = _uid()
+            if uid:
+                q = supabase.table("produtos").select("nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
+                resp = q.execute()
+                produtos_data = resp.data or []
+        except Exception:
+            pass
+    
+    # SIMULADOR DE META - Calcular alocações necessárias para atingir meta
+    simulador_meta = _calcular_simulador_meta(_uid(), total_rec_escritorio, produtos_data)
 
     return render_template(
         "alocacoes/index.html",
         alocacoes=enriched,
         kanban=kanban,
         total_geral=total_geral,
+        totais_por_status=totais_por_status,
         totais_clientes=totais_clientes,
-        totais_produtos=totais_produtos,
+        receitas_por_produto=receitas_por_produto,
         total_rec_escritorio=total_rec_escritorio,
         total_rec_assessor=total_rec_assessor,
         cliente_id_filter=cliente_id_filter,
+        simulador_meta=simulador_meta,
     )
 
 
@@ -314,7 +349,7 @@ def novo():
                 "user_id": uid,
             }).execute()
             flash("Alocação cadastrada com sucesso!", "success")
-            return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
+            return redirect(url_for("alocacoes.index"))
         except Exception as e:
             current_app.logger.exception("Falha ao inserir alocação no Supabase")
             flash(f"Erro ao cadastrar alocação: {str(e)}", "error")
@@ -356,7 +391,7 @@ def editar(aloc_id: str):
                 }).eq("id", aloc_id).eq("user_id", uid)
                 q.execute()
                 flash("Alocação atualizada.", "success")
-                return redirect(url_for("alocacoes.index", cliente_id=cliente_id))
+                return redirect(url_for("alocacoes.index"))
             except Exception:
                 current_app.logger.exception("Falha ao atualizar alocação no Supabase")
                 flash("Falha ao atualizar alocação no Supabase.", "error")
@@ -400,17 +435,23 @@ def efetivar(aloc_id: str):
 
     if next_url:
         return redirect(next_url)
-    return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
+    return redirect(url_for("alocacoes.index"))
 
 
 # ---------------- ATUALIZAR STATUS ----------------
 @alocacoes_bp.route("/<string:aloc_id>/status", methods=["POST"])
 @login_required
 def atualizar_status(aloc_id: str):
+    from flask import jsonify
     new_status = request.form.get("status", "mapeado")
     next_url = request.args.get("next") or request.form.get("next") or url_for("alocacoes.index")
     
+    # Verificar se é uma requisição AJAX
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', '')
+    
     if new_status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
+        if is_ajax:
+            return jsonify({"success": False, "message": "Status inválido"}), 400
         flash("Status inválido.", "error")
         return redirect(next_url)
     
@@ -418,6 +459,8 @@ def atualizar_status(aloc_id: str):
         try:
             uid = _uid()
             if not uid:
+                if is_ajax:
+                    return jsonify({"success": False, "message": "Sessão inválida"}), 401
                 flash("Sessão inválida: não foi possível identificar o usuário.", "error")
                 return redirect(next_url)
             
@@ -434,18 +477,32 @@ def atualizar_status(aloc_id: str):
                 updates = {"percentual": 100, "efetivada": True}
             
             q = supabase.table("alocacoes").update(updates).eq("id", aloc_id).eq("user_id", uid)
-            q.execute()
+            result = q.execute()
             
+            message = ""
             if new_status == "confirmado":
-                flash("Alocação movida para Confirmado e marcada como efetivada!", "success")
+                message = "Alocação movida para Confirmado e marcada como efetivada!"
             else:
-                flash(f"Alocação movida para {new_status.replace('_', ' ').title()}.", "success")
-        except Exception:
+                message = f"Alocação movida para {new_status.replace('_', ' ').title()}."
+            
+            if is_ajax:
+                return jsonify({"success": True, "message": message})
+            else:
+                flash(message, "success")
+                
+        except Exception as e:
             current_app.logger.exception("Falha ao atualizar status no Supabase")
+            if is_ajax:
+                return jsonify({"success": False, "message": "Falha ao atualizar status"}), 500
             flash("Falha ao atualizar status.", "error")
     else:
-        flash("Sistema indisponível. Tente novamente mais tarde.", "error")
+        message = "Sistema indisponível. Tente novamente mais tarde."
+        if is_ajax:
+            return jsonify({"success": False, "message": message}), 503
+        flash(message, "error")
     
+    if is_ajax:
+        return jsonify({"success": False, "message": "Erro desconhecido"}), 500
     return redirect(next_url)
 
 
@@ -466,15 +523,15 @@ def excluir(aloc_id: str):
             q = supabase.table("alocacoes").delete().eq("id", aloc_id).eq("user_id", uid)
             q.execute()
             flash("Alocação excluída.", "success")
-            return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
+            return redirect(url_for("alocacoes.index"))
         except Exception:
             current_app.logger.exception("Falha ao excluir alocação no Supabase")
             flash("Falha ao excluir alocação no Supabase.", "error")
-            return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
+            return redirect(url_for("alocacoes.index"))
     else:
         flash("Sistema indisponível. Tente novamente mais tarde.", "error")
         
-    return redirect(url_for("alocacoes.index", cliente_id=cliente_id_redirect))
+    return redirect(url_for("alocacoes.index"))
 
 
 # ---------------- PRODUTOS ----------------
@@ -508,17 +565,18 @@ def produtos():
 @login_required
 def produto_novo():
     CLASSES_ATIVO = [
-        "Renda Fixa",
-        "Fundos",
-        "Previdência",
-        "Renda Variável (mesa)",
-        "Produto Estruturado",
+        "Câmbio",
         "COE",
-        "Fundo Imobiliário",
-        "Offshore",
-        "Seguro de Vida",
         "Consórcio",
+        "Fundo Imobiliário",
+        "Fundos",
+        "Offshore",
+        "Previdência",
+        "Produto Estruturado",
+        "Renda Fixa",
         "Renda Fixa Digital",
+        "Renda Variável (mesa)",
+        "Seguro de Vida",
     ]
     if request.method == "POST":
         nome = (request.form.get("nome") or "").strip()
@@ -664,9 +722,9 @@ def produto_editar(id: str):
 
     # GET -> renderiza formulário
     CLASSES_ATIVO = [
-        "Renda Fixa", "Fundos", "Previdência", "Renda Variável (mesa)",
-        "Produto Estruturado", "COE", "Fundo Imobiliário", "Offshore",
-        "Seguro de Vida", "Consórcio", "Renda Fixa Digital",
+        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
+        "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
     ]
     return render_template("alocacoes/produto_editar.html",
                            p=produto, classes=CLASSES_ATIVO)
@@ -734,3 +792,396 @@ def produto_excluir_todos():
             current_app.logger.exception("Falha ao excluir todos os produtos no banco local")
             flash("Falha ao excluir todos os produtos no banco local.", "error")
     return redirect(url_for("alocacoes.produtos"))
+
+
+@alocacoes_bp.route("/receitas-ajax", methods=["GET"])
+@login_required
+def receitas_ajax():
+    """Endpoint AJAX para retornar receitas atualizadas em tempo real"""
+    from flask import jsonify
+    
+    try:
+        uid = _uid()
+        alocacoes_data = []
+        
+        if supabase:
+            q = supabase.table("alocacoes").select("*, clientes:cliente_id(*), produtos:produto_id(*)").order("id")
+            if uid:
+                q = q.eq("user_id", uid)
+            resp = q.execute()
+            alocacoes_data = resp.data
+        
+        # Calcular receitas apenas para alocações confirmadas
+        total_rec_escritorio = 0.0
+        total_rec_assessor = 0.0
+        receitas_por_produto = {}
+        
+        for a in alocacoes_data:
+            if not _is_confirmed(a.get("percentual"), a.get("efetivada")):
+                continue
+                
+            valor = _to_float(a.get("valor"))
+            if valor <= 0:
+                continue
+                
+            produto = a.get("produtos", {})
+            cliente = a.get("clientes", {})
+            
+            if not produto or not cliente:
+                continue
+                
+            roa_pct = _to_float(produto.get("roa_pct"))
+            classe = produto.get("classe", "")
+            repasse = _to_float(cliente.get("repasse"))
+            
+            if roa_pct <= 0:
+                continue
+                
+            # Calcular receitas
+            rec_escritorio, rec_assessor = _calc_receitas(valor, roa_pct, classe, repasse)
+            total_rec_escritorio += rec_escritorio
+            total_rec_assessor += rec_assessor
+            
+            # Agrupar por produto para o gráfico
+            produto_nome = produto.get("nome", "Produto desconhecido")
+            if produto_nome not in receitas_por_produto:
+                receitas_por_produto[produto_nome] = 0.0
+            receitas_por_produto[produto_nome] += rec_escritorio + rec_assessor
+        
+        # Preparar dados para o gráfico (top 10)
+        receitas_produtos_list = [
+            {"nome": nome, "receita": receita}
+            for nome, receita in sorted(receitas_por_produto.items(), key=lambda x: x[1], reverse=True)[:10]
+        ]
+        
+        return jsonify({
+            "receita_escritorio": total_rec_escritorio,
+            "receita_assessor": total_rec_assessor,
+            "receitas_por_produto": receitas_produtos_list
+        })
+        
+    except Exception as e:
+        current_app.logger.exception("Erro ao buscar receitas AJAX")
+        return jsonify({"error": "Erro interno"}), 500
+
+
+def _is_confirmed(percentual, efetivada):
+    """Verifica se a alocação está confirmada baseada na lógica de status"""
+    if efetivada:
+        return True
+    return False
+
+
+def _calcular_simulador_meta(uid, receita_atual, produtos_data):
+    """Calcula quanto precisa alocar em cada produto para atingir as metas por classe"""
+    from datetime import datetime
+    
+    mes_atual = datetime.now().strftime("%Y-%m")
+    
+    # Buscar metas por classe do mês atual
+    metas_por_classe = {}
+    total_metas = 0.0
+    
+    try:
+        if supabase and uid:
+            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
+            for meta in resp.data or []:
+                classe = meta.get("classe", "")
+                meta_receita = _to_float(meta.get("meta_receita", 0))
+                if meta_receita > 0:  # Só considerar metas > 0
+                    metas_por_classe[classe] = meta_receita
+                    total_metas += meta_receita
+    except Exception as e:
+        current_app.logger.exception("Erro ao buscar metas por classe")
+    
+    # Se não há metas definidas, retornar vazio
+    if not metas_por_classe:
+        return {
+            "meta_mes": 0.0,
+            "receita_atual": receita_atual,
+            "receita_passiva": 0.0,
+            "receita_total_esperada": receita_atual,
+            "falta_receita": 0.0,
+            "produtos_sugestao": [],
+            "mes_atual": mes_atual,
+            "metas_por_classe": {}
+        }
+    
+    # Calcular receita passiva usando a MESMA lógica do dashboard
+    try:
+        clientes_data = []
+        if supabase and uid:
+            clientes_resp = supabase.table("clientes").select("*").eq("user_id", uid).execute()
+            clientes_data = clientes_resp.data or []
+        
+        from views.dashboard import _receita_escritorio_recorrente
+        receita_passiva_mes = _receita_escritorio_recorrente(clientes_data)
+        
+    except Exception as e:
+        current_app.logger.warning(f"Erro ao calcular receita passiva via dashboard: {e}")
+        receita_passiva_mes = 0.0
+    
+    # Calcular valor financeiro já aplicado por produto (confirmado)
+    valor_aplicado_por_produto = {}
+    
+    try:
+        if supabase and uid:
+            # Buscar alocações confirmadas
+            alocacoes_resp = supabase.table("alocacoes").select("*, produtos:produto_id(*)").eq("user_id", uid).execute()
+            
+            for aloc in alocacoes_resp.data or []:
+                # Verificar se está confirmada usando a mesma lógica do sistema
+                if not _is_confirmed(aloc.get("percentual"), aloc.get("efetivada")):
+                    continue
+                    
+                produto = aloc.get("produtos", {})
+                
+                if not produto:
+                    continue
+                    
+                produto_nome = produto.get("nome", "").strip()
+                valor = _to_float(aloc.get("valor"))
+                
+                if valor > 0 and produto_nome:
+                    # Somar valor financeiro aplicado por produto
+                    if produto_nome not in valor_aplicado_por_produto:
+                        valor_aplicado_por_produto[produto_nome] = 0.0
+                    valor_aplicado_por_produto[produto_nome] += valor
+                    
+        current_app.logger.info(f"SIMULADOR - Valor aplicado por produto: {valor_aplicado_por_produto}")
+        
+    except Exception as e:
+        current_app.logger.warning(f"Erro ao calcular valor aplicado: {e}")
+        valor_aplicado_por_produto = {}
+
+    # Agrupar produtos por classe
+    produtos_por_classe = {}
+    for produto in produtos_data:
+        classe = produto.get("classe", "").strip()
+        if classe not in produtos_por_classe:
+            produtos_por_classe[classe] = []
+        produtos_por_classe[classe].append(produto)
+    
+    # Calcular sugestões para cada classe que tem meta definida
+    produtos_sugestao = []
+    receita_total_esperada = receita_atual + receita_passiva_mes
+    falta_receita_total = 0.0
+    
+    for classe, meta_classe in metas_por_classe.items():
+        # Produtos válidos desta classe
+        produtos_classe = produtos_por_classe.get(classe, [])
+        produtos_validos_classe = []
+        total_peso_roa_classe = 0
+        
+        for produto in produtos_classe:
+            roa_pct = _to_float(produto.get("roa_pct", 0))
+            if roa_pct > 0:
+                produtos_validos_classe.append(produto)
+                total_peso_roa_classe += roa_pct
+        
+        if not produtos_validos_classe:
+            current_app.logger.warning(f"Classe '{classe}' tem meta definida mas nenhum produto válido")
+            continue
+        
+        # Meta dividida igualmente entre produtos da classe
+        qtd_produtos_classe = len(produtos_validos_classe)
+        meta_receita_por_produto = meta_classe / qtd_produtos_classe if qtd_produtos_classe > 0 else 0
+        
+        current_app.logger.info(f"SIMULADOR - Classe '{classe}': Meta total={meta_classe}, Produtos={qtd_produtos_classe}, Meta por produto={meta_receita_por_produto}")
+        
+        for produto in produtos_validos_classe:
+            roa_pct = _to_float(produto.get("roa_pct", 0))
+            produto_nome = produto.get("nome", "")
+            
+            if roa_pct <= 0:
+                continue
+            
+            # Valor financeiro necessário para gerar a meta de receita deste produto
+            # Receita Escritório = Valor Aplicado × ROA%
+            # Logo: Valor Necessário = Meta Receita ÷ ROA%
+            valor_necessario = meta_receita_por_produto / (roa_pct / 100.0)
+            
+            # Valor já aplicado neste produto (confirmado)
+            valor_ja_aplicado = valor_aplicado_por_produto.get(produto_nome, 0.0)
+            
+            # Valor restante = Valor necessário - Valor já aplicado
+            valor_restante = max(0, valor_necessario - valor_ja_aplicado)
+            
+            # Receita que seria gerada se aplicasse o valor necessário
+            receita_gerada = valor_necessario * (roa_pct / 100.0)
+
+            produto_info = {
+                "nome": produto_nome,
+                "classe": classe,
+                "roa_pct": roa_pct,
+                "meta_classe": meta_classe,
+                "meta_receita_por_produto": meta_receita_por_produto,
+                "valor_necessario": valor_necessario,
+                "valor_ja_aplicado": valor_ja_aplicado,
+                "valor_restante": valor_restante,
+                "receita_gerada": receita_gerada,
+                "em_campanha": produto.get("em_campanha", False)
+            }
+            
+            # Adicionar à lista
+            produtos_sugestao.append(produto_info)
+    
+    # Calcular receita faltante = Meta - Receita Ativa - Receita Passiva
+    receita_total_esperada = receita_atual + receita_passiva_mes
+    falta_receita = max(0, total_metas - receita_total_esperada)
+    
+    # Ordenar por classe e ROA
+    produtos_sugestao.sort(key=lambda x: (x["classe"], -x["roa_pct"]))
+    
+    return {
+        "meta_mes": total_metas,
+        "receita_atual": receita_atual,
+        "receita_passiva": receita_passiva_mes,
+        "receita_total_esperada": receita_total_esperada,
+        "falta_receita": falta_receita,
+        "produtos_sugestao": produtos_sugestao,
+        "mes_atual": mes_atual,
+        "metas_por_classe": metas_por_classe
+    }
+
+
+# ---------------- METAS ESCRITÓRIO ----------------
+@alocacoes_bp.route("/metas-escritorio")
+@login_required
+def metas_escritorio():
+    """Tela para definir metas de receita por classe de produto"""
+    from datetime import datetime
+    
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida.", "error")
+        return redirect(url_for("alocacoes.index"))
+    
+    mes_atual = datetime.now().strftime("%Y-%m")
+    
+    # Classes de produto disponíveis (mesmas do cadastro de produtos)
+    CLASSES_ATIVO = [
+        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
+        "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
+    ]
+    
+    # Buscar metas existentes para o mês atual
+    metas_existentes = {}
+    try:
+        if supabase:
+            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
+            for meta in resp.data or []:
+                classe = meta.get("classe", "")
+                meta_receita = _to_float(meta.get("meta_receita", 0))
+                metas_existentes[classe] = meta_receita
+    except Exception as e:
+        current_app.logger.exception("Erro ao buscar metas por classe")
+    
+    # Preparar dados para o template
+    metas = []
+    total_metas = 0.0
+    
+    for classe in CLASSES_ATIVO:
+        meta_receita = metas_existentes.get(classe, 0.0)
+        total_metas += meta_receita
+        
+        metas.append({
+            "classe": classe,
+            "meta_receita": meta_receita
+        })
+    
+    return render_template(
+        "alocacoes/metas_escritorio.html",
+        metas=metas,
+        total_metas=total_metas,
+        mes_atual=mes_atual
+    )
+
+
+@alocacoes_bp.route("/metas-escritorio/salvar", methods=["POST"])
+@login_required
+def salvar_metas_escritorio():
+    """Salvar metas de receita por classe"""
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida.", "error")
+        return redirect(url_for("alocacoes.metas_escritorio"))
+    
+    mes = request.form.get("mes", "").strip()
+    if not mes:
+        flash("Mês é obrigatório.", "error")
+        return redirect(url_for("alocacoes.metas_escritorio"))
+    
+    # Classes de produto disponíveis
+    CLASSES_ATIVO = [
+        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
+        "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
+    ]
+    
+    try:
+        if not supabase:
+            flash("Sistema indisponível.", "error")
+            return redirect(url_for("alocacoes.metas_escritorio"))
+        
+        # Primeiro, excluir metas existentes para o mês
+        supabase.table("metas_escritorio_classe").delete().eq("user_id", uid).eq("mes", mes).execute()
+        
+        # Inserir novas metas
+        metas_para_inserir = []
+        total_salvo = 0.0
+        
+        for classe in CLASSES_ATIVO:
+            field_name = f"meta_{classe}"
+            meta_valor = request.form.get(field_name, "").strip()
+            
+            try:
+                meta_receita = float(meta_valor) if meta_valor else 0.0
+            except ValueError:
+                meta_receita = 0.0
+            
+            # Permitir metas zero conforme solicitado pelo usuário
+            if meta_receita >= 0:
+                metas_para_inserir.append({
+                    "user_id": uid,
+                    "mes": mes,
+                    "classe": classe,
+                    "meta_receita": meta_receita
+                })
+                total_salvo += meta_receita
+        
+        if metas_para_inserir:
+            supabase.table("metas_escritorio_classe").insert(metas_para_inserir).execute()
+        
+        # Salvar a soma total na tabela metas_mensais (para compatibilidade com dashboard)
+        try:
+            # Primeiro, verificar se já existe uma meta para este mês
+            existing_meta = supabase.table("metas_mensais").select("*").eq("user_id", uid).eq("mes", mes).execute()
+            
+            if existing_meta.data:
+                # Atualizar meta existente
+                supabase.table("metas_mensais").update({
+                    "meta_receita": total_salvo
+                }).eq("user_id", uid).eq("mes", mes).execute()
+            else:
+                # Inserir nova meta
+                supabase.table("metas_mensais").insert({
+                    "user_id": uid,
+                    "mes": mes,
+                    "meta_receita": total_salvo
+                }).execute()
+                
+            current_app.logger.info(f"Meta total salva na tabela metas_mensais: R$ {total_salvo}")
+            
+        except Exception as e:
+            current_app.logger.warning(f"Erro ao salvar meta total em metas_mensais: {e}")
+            # Não falhar o processo principal por causa disso
+        
+        flash(f"Metas salvas com sucesso! Total: R$ {total_salvo:,.2f}", "success")
+        
+    except Exception as e:
+        current_app.logger.exception("Erro ao salvar metas por classe")
+        flash("Erro ao salvar metas. Tente novamente.", "error")
+    
+    return redirect(url_for("alocacoes.metas_escritorio"))
