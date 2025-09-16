@@ -31,50 +31,21 @@ def _current_user_id() -> str | None:
     Retorna o user_id UUID válido do Supabase.
     Com RLS ativo, o user_id deve ser um UUID válido da tabela auth.users.
 
-    CORREÇÃO TEMPORÁRIA: Detecta automaticamente qual user_id tem dados no banco.
+    SEGURANÇA: Sempre retorna apenas o user_id da sessão atual. NUNCA acessa dados de outros usuários.
     """
     u = session.get("user") or {}
 
     # PRIORIDADE 1: user_id do Supabase (UUID válido)
     user_id = u.get("id") or u.get("supabase_user_id")
     if user_id and len(user_id) > 10:  # UUID válido tem pelo menos 32 chars
-        current_app.logger.info("USERID_DEBUG: User ID da sessão: %s", user_id)
+        current_app.logger.info("USERID_SECURITY: User ID da sessão: %s", user_id)
 
-        # CORREÇÃO TEMPORÁRIA: Verificar se este user_id tem dados
-        supabase = _get_supabase()
-        if supabase:
-            try:
-                # Verificar se o user_id da sessão tem clientes
-                result = supabase.table("clientes").select("count", count="exact").eq("user_id", user_id).limit(1).execute()
-                count = result.count or 0
-                current_app.logger.info("USERID_DEBUG: User ID %s tem %d clientes", user_id, count)
-
-                if count > 0:
-                    # User ID da sessão tem dados, usar ele
-                    return user_id
-                else:
-                    # User ID da sessão não tem dados, buscar um que tenha
-                    current_app.logger.warning("USERID_DEBUG: User ID da sessão não tem dados, buscando alternativo")
-
-                    # Buscar qualquer user_id que tenha dados, priorizando o mais usado
-                    result = supabase.table("clientes").select("user_id", count="exact").limit(10).execute()
-                    if result.data:
-                        # Contar ocorrências de cada user_id para pegar o mais comum
-                        from collections import Counter
-                        user_ids = [item.get("user_id") for item in result.data if item.get("user_id")]
-                        if user_ids:
-                            most_common_user_id = Counter(user_ids).most_common(1)[0][0]
-                            current_app.logger.warning("USERID_DEBUG: Usando user_id mais comum com dados: %s", most_common_user_id)
-                            return most_common_user_id
-
-            except Exception as e:
-                current_app.logger.error("USERID_DEBUG: Erro ao verificar dados do user_id: %s", e)
-
-        # Se chegou até aqui, usar o user_id da sessão mesmo sem dados
+        # SEGURANÇA: Sempre retornar apenas o user_id da sessão atual
+        # Mesmo que não tenha dados, é responsabilidade do usuário criar/configurar seus dados
         return user_id
 
     # Se não temos UUID válido, isso significa que a autenticação não funcionou
-    current_app.logger.error("USERID_DEBUG: Sem user_id UUID válido na sessão! Sessão: %s", u.keys())
+    current_app.logger.error("USERID_SECURITY: Sem user_id UUID válido na sessão! Sessão: %s", u.keys())
     return None
 
 
@@ -464,9 +435,8 @@ def _meta_do_mes():
         else:
             current_app.logger.warning("META_DEBUG: Nenhuma meta encontrada para user_id=%s, mes=%s", uid, mes)
             
-            # Debug: mostrar TODAS as metas da tabela para investigar vazamento
-            debug_all = supabase.table("metas_mensais").select("mes,user_id,meta_receita").execute()
-            current_app.logger.info("META_DEBUG: Todas as metas na tabela: %s", debug_all.data or [])
+            # SEGURANÇA: Não fazer debug de TODAS as metas (vazamento de dados)
+            current_app.logger.info("META_DEBUG: Nenhuma meta encontrada para o usuário atual")
             
     except Exception as e:
         current_app.logger.error("META_DEBUG: Erro ao buscar meta: %s", e)
@@ -1156,9 +1126,8 @@ def debug():
         res_auth = client.table("metas_mensais").select("*").eq("mes", mes_atual).execute()
         metas_info["metas_cliente_auth"] = list(res_auth.data or [])
         
-        # Com cliente admin
-        res_admin = supabase.table("metas_mensais").select("*").limit(5).execute()
-        metas_info["metas_admin_todas"] = list(res_admin.data or [])
+        # SEGURANÇA: Não buscar TODAS as metas (vazamento de dados)
+        metas_info["metas_admin_todas"] = "CONSULTA_REMOVIDA_POR_SEGURANCA"
         
         if uid:
             res_admin_filter = supabase.table("metas_mensais").select("*").eq("user_id", uid).execute()
