@@ -6,9 +6,15 @@ import re
 import unicodedata
 
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception:
-    supabase = None
+    get_supabase_client = None
+
+def _get_supabase():
+    """Obtém cliente Supabase autenticado."""
+    if not get_supabase_client:
+        return None
+    return get_supabase_client()
 
 
 def _uid():
@@ -75,6 +81,7 @@ def _extract_digits(code: str) -> str:
 # ----------------- Preferências (produtos selecionados) -----------------
 def _load_product_prefs() -> list[str]:
     key = _user_key()
+    supabase = _get_supabase()
     if supabase:
         try:
             q = supabase.table("user_prefs").select("value").eq("user_key", key).eq("key", "recorrencia_produtos")
@@ -106,6 +113,7 @@ def _load_product_prefs() -> list[str]:
 def _save_product_prefs(selected: list[str]):
     key = _user_key()
     payload = json.dumps(selected, ensure_ascii=False)
+    supabase = _get_supabase()
     if supabase:
         try:
             supabase.table("user_prefs").upsert(
@@ -122,6 +130,7 @@ def _save_product_prefs(selected: list[str]):
 # ----------------- Supabase (fetch paginado) -----------------
 def _fetch_supabase_rows_paged(page_size: int = 1000, max_pages: int = 200):
     """Busca receita_itens paginando e faz fallback se faltar alguma coluna."""
+    supabase = _get_supabase()
     if not supabase:
         raise RuntimeError("Supabase client não inicializado.")
 
@@ -188,6 +197,7 @@ def _fetch_clientes_maps():
     code_to_kind:  dict[str, str] = {}
     canon_parts:   dict[str, dict[str, str]] = {}
 
+    supabase = _get_supabase()
     if not supabase:
         return code_to_name, code_to_canon, code_to_kind, canon_parts
 

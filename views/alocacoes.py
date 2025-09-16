@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, session
 from utils import login_required
 from models import db  # fallback local opcional
+from cache_manager import cached_by_user, invalidate_user_cache
 # (Opcional) se você tiver modelos locais para Produto/Alocacao/Cliente, pode importar
 try:
     from models import Cliente, Produto, Alocacao
@@ -9,9 +10,15 @@ except Exception:
 
 # Supabase opcional (não quebra se não estiver configurado)
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception:
-    supabase = None
+    get_supabase_client = None
+
+def _get_supabase():
+    """Obtém cliente Supabase autenticado."""
+    if not get_supabase_client:
+        return None
+    return get_supabase_client()
 
 alocacoes_bp = Blueprint("alocacoes", __name__, url_prefix="/alocacoes")
 
@@ -92,10 +99,174 @@ def _uid():
     u = session.get("user") or {}
     return u.get("id") or u.get("supabase_user_id")
 
+@cached_by_user('receitas_calc', timeout=300)  # 5 minutos
+def _calcular_receitas_dashboard(cliente_id_filter=None):
+    """
+    Calcula receitas e totais com cache para melhorar performance.
+
+    Args:
+        cliente_id_filter: ID do cliente para filtrar (opcional)
+
+    Returns:
+        dict: Dados calculados incluindo totais e receitas
+    """
+    uid = _uid()
+    supabase = _get_supabase()
+
+    result = {
+        'alocacoes': [],
+        'totais_por_status': {
+            "mapeado": 0.0,
+            "apresentado": 0.0,
+            "push_enviado": 0.0,
+            "confirmado": 0.0
+        },
+        'receitas_por_status': {
+            "mapeado": 0.0,
+            "apresentado": 0.0,
+            "push_enviado": 0.0,
+            "confirmado": 0.0
+        },
+        'total_geral': 0.0,
+        'total_rec_escritorio': 0.0,
+        'total_rec_assessor': 0.0,
+        'by_cliente': {},
+        'by_produto_receita': {}
+    }
+
+    if not supabase:
+        return result
+
+    try:
+        q = supabase.table("alocacoes").select(
+            "id, percentual, valor, cliente_id, produto_id, efetivada, "
+            "cliente:cliente_id ( id, nome, modelo, repasse ), "
+            "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
+        ).order("created_at", desc=False)
+
+        if uid:
+            q = q.eq("user_id", uid)
+        if cliente_id_filter:
+            q = q.eq("cliente_id", cliente_id_filter)
+
+        res = q.execute()
+
+        for r in res.data or []:
+            valor = _to_float(r.get("valor"))
+            cliente = r.get("cliente") or {}
+            produto = r.get("produto") or {}
+
+            modelo = cliente.get("modelo") or ""
+            repasse = cliente.get("repasse") or 35
+            classe = produto.get("classe") or ""
+            roa_pct = _to_float(produto.get("roa_pct"))
+
+            # Definir status baseado em efetivada e percentual
+            efetivada = r.get("efetivada", False)
+            percentual = _to_float(r.get("percentual", 0))
+
+            if efetivada:
+                status = "confirmado"
+            elif percentual >= 75:
+                status = "push_enviado"
+            elif percentual >= 50:
+                status = "apresentado"
+            else:
+                status = "mapeado"
+
+            # Calcular receitas
+            rec_escr, rec_ass, rec_base = _calc_receitas(valor, roa_pct, repasse, modelo, classe)
+
+            # Somar no total geral sempre
+            result['total_geral'] += valor
+            result['totais_por_status'][status] += valor
+            result['receitas_por_status'][status] += rec_escr
+
+            # Receitas só para confirmados (receita efetiva)
+            if status == "confirmado":
+                result['total_rec_escritorio'] += rec_escr
+                result['total_rec_assessor'] += rec_ass
+
+                # Para o gráfico donut
+                pid, pnome = produto.get("id"), produto.get("nome") or ""
+                if pid:
+                    acc = result['by_produto_receita'].setdefault(pid, {"nome": pnome, "receita": 0.0})
+                    acc["receita"] += rec_escr
+
+            # By cliente (todos os status)
+            cid, cnome = cliente.get("id"), cliente.get("nome") or ""
+            if cid:
+                acc = result['by_cliente'].setdefault(cid, {"nome": cnome, "valor": 0.0})
+                acc["valor"] += valor
+
+            # Adicionar item processado
+            item = dict(r)
+            item.update({
+                "receita_base": rec_base,
+                "receita_escritorio": rec_escr,
+                "receita_assessor": rec_ass,
+                "receita_escritorio_efetiva": rec_escr if status == "confirmado" else 0.0,
+                "receita_assessor_efetiva": rec_ass if status == "confirmado" else 0.0,
+                "repasse": repasse,
+                "status": status
+            })
+            result['alocacoes'].append(item)
+
+    except Exception:
+        current_app.logger.exception("Falha ao calcular receitas no Supabase")
+
+    return result
+
+
+@cached_by_user('clientes_list')
+def _carregar_clientes():
+    """Carrega lista de clientes do usuário com cache."""
+    clientes = []
+    uid = _uid()
+    supabase = _get_supabase()
+    if supabase:
+        try:
+            cres = supabase.table("clientes").select("id, nome").order("nome")
+            if uid:
+                cres = cres.eq("user_id", uid)
+            else:
+                return []
+            clientes = (cres.execute().data or [])
+        except Exception:
+            current_app.logger.exception("Falha ao carregar clientes do Supabase")
+            clientes = []
+    return clientes
+
+@cached_by_user('produtos_list')
+def _carregar_produtos():
+    """Carrega lista de produtos do usuário com cache."""
+    produtos = []
+    uid = _uid()
+    supabase = _get_supabase()
+    if supabase:
+        try:
+            pres = supabase.table("produtos").select("id, nome, classe").order("nome")
+            if uid:
+                pres = pres.eq("user_id", uid)
+            else:
+                return []
+            produtos = (pres.execute().data or [])
+        except Exception:
+            current_app.logger.exception("Falha ao carregar produtos do Supabase")
+            produtos = []
+    return produtos
 
 def _carregar_clientes_produtos():
+    """Wrapper que usa as funções com cache individual."""
+    clientes = _carregar_clientes()
+    produtos = _carregar_produtos()
+    return clientes, produtos
+
+def _carregar_clientes_produtos_original():
+    """Função original sem cache - mantida como backup."""
     clientes, produtos = [], []
     uid = _uid()
+    supabase = _get_supabase()
     if supabase:
         try:
             cres = supabase.table("clientes").select("id, nome").order("nome")
@@ -125,6 +296,7 @@ def _carregar_clientes_produtos():
 
 
 def _get_alocacao_by_id(aloc_id: str):
+    supabase = _get_supabase()
     if supabase:
         try:
             uid = _uid()
@@ -163,107 +335,18 @@ def _get_alocacao_by_id(aloc_id: str):
 def index():
     cliente_id_filter = (request.args.get("cliente_id") or "").strip() or None
 
-    alocacoes = []
-    if supabase:
-        try:
-            uid = _uid()
-            q = supabase.table("alocacoes").select(
-                "id, percentual, valor, cliente_id, produto_id, efetivada, "
-                "cliente:cliente_id ( id, nome, modelo, repasse ), "
-                "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
-            ).order("created_at", desc=False)
-            if uid:
-                q = q.eq("user_id", uid)
-            if cliente_id_filter:
-                q = q.eq("cliente_id", cliente_id_filter)
-            res = q.execute()
-            for r in res.data or []:
-                alocacoes.append({
-                    "id": r.get("id"),
-                    "percentual": _to_float(r.get("percentual")),
-                    "valor": _to_float(r.get("valor")),
-                    "cliente_id": r.get("cliente_id"),
-                    "produto_id": r.get("produto_id"),
-                    "efetivada": bool(r.get("efetivada")),
-                    "status": "mapeado",  # Padrão até coluna ser criada
-                    "cliente": (r.get("cliente") or {}),
-                    "produto": (r.get("produto") or {}),
-                })
-        except Exception:
-            current_app.logger.exception("Falha ao listar alocações no Supabase")
-            alocacoes = []
-    else:
-        alocacoes = []
+    # Usar função com cache para buscar e calcular receitas
+    cached_data = _calcular_receitas_dashboard(cliente_id_filter)
 
-    # Contadores por status
-    totais_por_status = {
-        "mapeado": 0.0,
-        "apresentado": 0.0, 
-        "push_enviado": 0.0,
-        "confirmado": 0.0
-    }
-    
-    total_geral = 0.0
-    total_rec_escritorio = 0.0
-    total_rec_assessor = 0.0
-    by_cliente = {}
-    by_produto_receita = {}  # Para gráfico donut (apenas confirmados)
-
-    enriched = []
-    for a in alocacoes:
-        valor = _to_float(a.get("valor"))
-        cliente = a.get("cliente") or {}
-        produto = a.get("produto") or {}
-
-        modelo = cliente.get("modelo") or ""
-        repasse = cliente.get("repasse") or 35
-        classe = produto.get("classe") or ""
-        roa_pct = _to_float(produto.get("roa_pct"))
-
-        # Definir status baseado em efetivada e percentual
-        efetivada = a.get("efetivada", False)
-        percentual = _to_float(a.get("percentual", 0))
-        
-        if efetivada:
-            status = "confirmado"
-        elif percentual >= 75:
-            status = "push_enviado"
-        elif percentual >= 50:
-            status = "apresentado"  
-        else:
-            status = "mapeado"
-
-        # Calcular receitas
-        rec_escr, rec_ass, rec_base = _calc_receitas(valor, roa_pct, repasse, modelo, classe)
-
-        # Somar no total geral sempre
-        total_geral += valor
-        totais_por_status[status] += valor
-        
-        # Receitas só para confirmados
-        if status == "confirmado":
-            total_rec_escritorio += rec_escr
-            total_rec_assessor += rec_ass
-            
-            # Para o gráfico donut
-            pid, pnome = produto.get("id"), produto.get("nome") or ""
-            if pid:
-                acc = by_produto_receita.setdefault(pid, {"nome": pnome, "receita": 0.0})
-                acc["receita"] += rec_escr
-
-        # By cliente (todos os status)
-        cid, cnome = cliente.get("id"), cliente.get("nome") or ""
-        if cid:
-            acc = by_cliente.setdefault(cid, {"nome": cnome, "valor": 0.0})
-            acc["valor"] += valor
-
-        b = dict(a)
-        b["receita_base"] = rec_base
-        b["receita_escritorio"] = rec_escr if status == "confirmado" else 0.0
-        b["receita_assessor"] = rec_ass if status == "confirmado" else 0.0
-        b["repasse"] = repasse
-        b["status"] = status
-        enriched.append(b)
+    # Extrair dados do cache
+    enriched = cached_data['alocacoes']
+    totais_por_status = cached_data['totais_por_status']
+    receitas_por_status = cached_data['receitas_por_status']
+    total_geral = cached_data['total_geral']
+    total_rec_escritorio = cached_data['total_rec_escritorio']
+    total_rec_assessor = cached_data['total_rec_assessor']
+    by_cliente = cached_data['by_cliente']
+    by_produto_receita = cached_data['by_produto_receita']
 
     totais_clientes = sorted(by_cliente.values(), key=lambda x: x["valor"], reverse=True)
     receitas_por_produto = sorted(by_produto_receita.values(), key=lambda x: x["receita"], reverse=True)
@@ -282,11 +365,12 @@ def index():
 
     # Buscar produtos para o simulador de meta
     produtos_data = []
-    if supabase:
+    supabase_produtos = _get_supabase()
+    if supabase_produtos:
         try:
             uid = _uid()
             if uid:
-                q = supabase.table("produtos").select("nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
+                q = supabase_produtos.table("produtos").select("nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
                 resp = q.execute()
                 produtos_data = resp.data or []
         except Exception:
@@ -301,6 +385,7 @@ def index():
         kanban=kanban,
         total_geral=total_geral,
         totais_por_status=totais_por_status,
+        receitas_por_status=receitas_por_status,
         totais_clientes=totais_clientes,
         receitas_por_produto=receitas_por_produto,
         total_rec_escritorio=total_rec_escritorio,
@@ -330,6 +415,7 @@ def novo():
             flash("Selecione cliente e produto.", "error")
             return redirect(url_for("alocacoes.novo"))
 
+        supabase = _get_supabase()
         if not supabase:
             flash("Sistema indisponível. Tente novamente mais tarde.", "error")
             return redirect(url_for("alocacoes.novo"))
@@ -340,15 +426,36 @@ def novo():
                 flash("Sessão inválida: não foi possível identificar o usuário.", "error")
                 return redirect(url_for("alocacoes.novo"))
 
-            supabase.table("alocacoes").insert({
-                "cliente_id": cliente_id,
-                "produto_id": produto_id,
-                "valor": valor,
-                "percentual": 0,
-                "efetivada": False,
-                "user_id": uid,
-            }).execute()
-            flash("Alocação cadastrada com sucesso!", "success")
+            # Verificar se já existe uma alocação para esta combinação cliente + produto
+            existing_check = supabase.table("alocacoes").select("id, valor").eq("cliente_id", cliente_id).eq("produto_id", produto_id).eq("user_id", uid).execute()
+
+            if existing_check.data:
+                # Já existe: atualizar somando o valor
+                existing_alocacao = existing_check.data[0]
+                existing_id = existing_alocacao["id"]
+                existing_valor = _to_float(existing_alocacao.get("valor", 0))
+                novo_valor = existing_valor + valor
+
+                supabase.table("alocacoes").update({
+                    "valor": novo_valor
+                }).eq("id", existing_id).eq("user_id", uid).execute()
+
+                flash(f"Valor adicionado à alocação existente! Novo total: R$ {novo_valor:,.2f}", "success")
+            else:
+                # Não existe: inserir nova alocação
+                supabase.table("alocacoes").insert({
+                    "cliente_id": cliente_id,
+                    "produto_id": produto_id,
+                    "valor": valor,
+                    "percentual": 0,
+                    "efetivada": False,
+                    "user_id": uid,
+                }).execute()
+                flash("Alocação cadastrada com sucesso!", "success")
+
+                # Invalidar cache de receitas
+                invalidate_user_cache('receitas_calc')
+
             return redirect(url_for("alocacoes.index"))
         except Exception as e:
             current_app.logger.exception("Falha ao inserir alocação no Supabase")
@@ -375,6 +482,7 @@ def editar(aloc_id: str):
         percentual = _to_float(request.form.get("percentual") or registro.get("percentual"))
         efetivada = (request.form.get("efetivada") in ("on", "true", "1"))
 
+        supabase = _get_supabase()
         if supabase:
             try:
                 uid = _uid()
@@ -417,6 +525,7 @@ def efetivar(aloc_id: str):
     cliente_id_redirect = request.args.get("cliente_id") or request.form.get("cliente_id") or None
     new_val = request.form.get("efetivada") in ("on", "true", "1", "True")
 
+    supabase = _get_supabase()
     if supabase:
         try:
             uid = _uid()
@@ -426,6 +535,10 @@ def efetivar(aloc_id: str):
             
             q = supabase.table("alocacoes").update({"efetivada": new_val}).eq("id", aloc_id).eq("user_id", uid)
             q.execute()
+
+            # Invalidar cache de receitas
+            invalidate_user_cache('receitas_calc')
+
             flash("Alocação atualizada.", "success")
         except Exception:
             current_app.logger.exception("Falha ao atualizar flag efetivada no Supabase")
@@ -443,18 +556,19 @@ def efetivar(aloc_id: str):
 @login_required
 def atualizar_status(aloc_id: str):
     from flask import jsonify
+    supabase = _get_supabase()
     new_status = request.form.get("status", "mapeado")
     next_url = request.args.get("next") or request.form.get("next") or url_for("alocacoes.index")
-    
+
     # Verificar se é uma requisição AJAX
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', '')
-    
+
     if new_status not in ["mapeado", "apresentado", "push_enviado", "confirmado"]:
         if is_ajax:
             return jsonify({"success": False, "message": "Status inválido"}), 400
         flash("Status inválido.", "error")
         return redirect(next_url)
-    
+
     if supabase:
         try:
             uid = _uid()
@@ -510,6 +624,7 @@ def atualizar_status(aloc_id: str):
 @alocacoes_bp.route("/<string:aloc_id>/excluir", methods=["POST"])
 @login_required
 def excluir(aloc_id: str):
+    supabase = _get_supabase()
     registro = _get_alocacao_by_id(aloc_id)
     cliente_id_redirect = (registro or {}).get("cliente_id")
 
@@ -538,6 +653,7 @@ def excluir(aloc_id: str):
 @alocacoes_bp.route("/produtos")
 @login_required
 def produtos():
+    supabase = _get_supabase()
     itens = []
     if supabase:
         try:
@@ -588,6 +704,7 @@ def produto_novo():
         em_campanha = request.form.get("em_campanha") == "on"
         campanha_mes = request.form.get("campanha_mes") or None
 
+        supabase = _get_supabase()
         if supabase:
             try:
                 uid = _uid()
@@ -603,6 +720,10 @@ def produto_novo():
                     "campanha_mes": campanha_mes,
                     "user_id": uid,  # 👈 agora o produto tem dono
                 }).execute()
+
+                # Invalidar cache de produtos
+                invalidate_user_cache('produtos_list')
+
                 flash("Produto cadastrado.", "success")
                 return redirect(url_for("alocacoes.produtos"))
             except Exception:
@@ -628,6 +749,7 @@ def produto_novo():
 @login_required
 def produto_editar(id: str):
     # carregar produto do dono
+    supabase = _get_supabase()
     produto = None
     if supabase:
         try:
@@ -672,6 +794,7 @@ def produto_editar(id: str):
         em_campanha = request.form.get("em_campanha") == "on"
         campanha_mes = request.form.get("campanha_mes") or None
 
+        supabase = _get_supabase()
         if supabase:
             try:
                 uid = _uid()
@@ -735,6 +858,7 @@ def produto_editar(id: str):
 @alocacoes_bp.route("/produtos/<string:id>/excluir", methods=["POST"])
 @login_required
 def produto_excluir(id: str):
+    supabase = _get_supabase()
     if supabase:
         try:
             uid = _uid()
@@ -765,6 +889,7 @@ def produto_excluir(id: str):
 @alocacoes_bp.route("/produtos/excluir-todos", methods=["POST"])
 @login_required
 def produto_excluir_todos():
+    supabase = _get_supabase()
     if supabase:
         try:
             uid = _uid()
@@ -804,6 +929,7 @@ def receitas_ajax():
         uid = _uid()
         alocacoes_data = []
         
+        supabase = _get_supabase()
         if supabase:
             q = supabase.table("alocacoes").select("*, clientes:cliente_id(*), produtos:produto_id(*)").order("id")
             if uid:
@@ -875,7 +1001,8 @@ def _is_confirmed(percentual, efetivada):
 def _calcular_simulador_meta(uid, receita_atual, produtos_data):
     """Calcula quanto precisa alocar em cada produto para atingir as metas por classe"""
     from datetime import datetime
-    
+
+    supabase = _get_supabase()
     mes_atual = datetime.now().strftime("%Y-%m")
     
     # Buscar metas por classe do mês atual
@@ -1069,6 +1196,7 @@ def metas_escritorio():
     # Buscar metas existentes para o mês atual
     metas_existentes = {}
     try:
+        supabase = _get_supabase()
         if supabase:
             resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
             for meta in resp.data or []:
@@ -1103,6 +1231,7 @@ def metas_escritorio():
 @login_required
 def salvar_metas_escritorio():
     """Salvar metas de receita por classe"""
+    supabase = _get_supabase()
     uid = _uid()
     if not uid:
         flash("Sessão inválida.", "error")

@@ -5,17 +5,24 @@ import re
 import io
 import csv
 from typing import List, Dict
+from cache_manager import cached_by_user, invalidate_user_cache
 
 # Se o NET total estiver salvo em centavos no banco, defina NET_TOTAL_IN_CENTS=1 no .env
 NET_TOTAL_IN_CENTS = os.getenv("NET_TOTAL_IN_CENTS", "0").lower() in ("1", "true", "yes")
 
 # 🔒 Import protegido: não quebra se Supabase não estiver configurado
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception as e:
-    supabase = None
+    get_supabase_client = None
     import logging
     logging.getLogger(__name__).warning("Supabase indisponível na carga do módulo: %s", e)
+
+def _get_supabase():
+    """Obtém cliente Supabase autenticado."""
+    if not get_supabase_client:
+        return None
+    return get_supabase_client()
 
 clientes_bp = Blueprint('clientes', __name__, url_prefix='/clientes')
 
@@ -99,6 +106,7 @@ def _uid():
 @clientes_bp.route('/')
 @login_required
 def index():
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return render_template('clientes/index.html', clientes=[], filtros={"q": "", "modelo": ""})
@@ -183,6 +191,7 @@ def novo():
         net_mb        = _to_float(request.form.get('net_mb'))
         net_total     = net_xp + net_xp_global + net_mb
 
+        supabase = _get_supabase()
         if not supabase:
             flash("Supabase indisponível.", "warning")
             return redirect(url_for('clientes.index'))
@@ -209,6 +218,9 @@ def novo():
             res = supabase.table("clientes").insert(payload).execute()
             current_app.logger.info("Supabase insert clientes -> %s", getattr(res, "data", None))
 
+            # Invalidar cache de clientes
+            invalidate_user_cache('clientes_list')
+
             flash('Cliente cadastrado.', 'success')
         except Exception:
             current_app.logger.exception("Falha ao inserir no Supabase")
@@ -221,6 +233,7 @@ def novo():
 @clientes_bp.route('/<string:id>/editar', methods=['GET', 'POST'])
 @login_required
 def editar(id: str):
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return redirect(url_for('clientes.index'))
@@ -257,6 +270,11 @@ def editar(id: str):
             }
             # filtra por id e user_id (defensivo se service role)
             supabase.table("clientes").update(payload).eq("id", id).eq("user_id", uid).execute()
+
+            # Invalidar caches relacionados
+            invalidate_user_cache('clientes_list')
+            invalidate_user_cache('dashboard_data')
+
             flash('Cliente atualizado com sucesso.', 'success')
         except Exception:
             current_app.logger.exception("Falha ao atualizar no Supabase")
@@ -305,6 +323,7 @@ def editar(id: str):
 @clientes_bp.route('/<string:id>/excluir', methods=['POST'])
 @login_required
 def excluir(id: str):
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return redirect(url_for('clientes.index'))
@@ -317,6 +336,11 @@ def excluir(id: str):
     try:
         # apaga apenas o registro do dono
         supabase.table("clientes").delete().eq("id", id).eq("user_id", uid).execute()
+
+        # Invalidar caches relacionados
+        invalidate_user_cache('clientes_list')
+        invalidate_user_cache('dashboard_data')
+
         flash('Cliente excluído com sucesso.', 'success')
     except Exception:
         current_app.logger.exception("Falha ao excluir no Supabase")
@@ -551,6 +575,7 @@ def importar_em_massa():
         return render_template("clientes/importar.html")
 
     # POST
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return redirect(url_for('clientes.index'))

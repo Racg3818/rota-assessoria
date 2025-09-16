@@ -130,26 +130,61 @@
 </div>
 {% endif %}
 
-<!-- KPIs por Status (acima das colunas do kanban) -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-  <div class="border rounded-xl p-3 bg-gray-50">
-    <div class="text-sm text-gray-600">Total Mapeado</div>
-    <div class="text-xl font-semibold text-gray-700">{{ totais_por_status.mapeado|brl }}</div>
+
+<!-- Cards de Totais por Status do Kanban -->
+<div class="mb-4">
+  <!-- Totais Aplicados -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-2">
+    <div class="border rounded-lg p-3 bg-gray-50">
+      <div class="text-xs text-gray-600">Total Aplicado</div>
+      <div class="text-lg font-semibold text-gray-700">{{ totais_por_status.mapeado|brl }}</div>
+      <div class="text-xs text-gray-500">Mapeado</div>
+    </div>
+
+    <div class="border rounded-lg p-3 bg-blue-50">
+      <div class="text-xs text-blue-600">Total Aplicado</div>
+      <div class="text-lg font-semibold text-blue-700">{{ totais_por_status.apresentado|brl }}</div>
+      <div class="text-xs text-blue-500">Apresentado</div>
+    </div>
+
+    <div class="border rounded-lg p-3 bg-yellow-50">
+      <div class="text-xs text-yellow-600">Total Aplicado</div>
+      <div class="text-lg font-semibold text-yellow-700">{{ totais_por_status.push_enviado|brl }}</div>
+      <div class="text-xs text-yellow-500">Push Enviado</div>
+    </div>
+
+    <div class="border rounded-lg p-3 bg-green-50">
+      <div class="text-xs text-green-600">Total Aplicado</div>
+      <div class="text-lg font-semibold text-green-700">{{ totais_por_status.confirmado|brl }}</div>
+      <div class="text-xs text-green-500">Confirmado</div>
+    </div>
   </div>
 
-  <div class="border rounded-xl p-3 bg-blue-50">
-    <div class="text-sm text-blue-600">Total Apresentado</div>
-    <div class="text-xl font-semibold text-blue-700">{{ totais_por_status.apresentado|brl }}</div>
-  </div>
+  <!-- Receitas Estimadas -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+    <div class="border rounded-lg p-3 bg-gray-100">
+      <div class="text-xs text-gray-600">Receita Estimada</div>
+      <div class="text-lg font-semibold text-gray-800">{{ receitas_por_status.mapeado|brl }}</div>
+      <div class="text-xs text-gray-500">Potencial</div>
+    </div>
 
-  <div class="border rounded-xl p-3 bg-yellow-50">
-    <div class="text-sm text-yellow-600">Total Push Enviado</div>
-    <div class="text-xl font-semibold text-yellow-700">{{ totais_por_status.push_enviado|brl }}</div>
-  </div>
+    <div class="border rounded-lg p-3 bg-blue-100">
+      <div class="text-xs text-blue-600">Receita Estimada</div>
+      <div class="text-lg font-semibold text-blue-800">{{ receitas_por_status.apresentado|brl }}</div>
+      <div class="text-xs text-blue-500">Potencial</div>
+    </div>
 
-  <div class="border rounded-xl p-3 bg-green-50">
-    <div class="text-sm text-green-600">Total Confirmado</div>
-    <div class="text-xl font-semibold text-green-700">{{ totais_por_status.confirmado|brl }}</div>
+    <div class="border rounded-lg p-3 bg-yellow-100">
+      <div class="text-xs text-yellow-600">Receita Estimada</div>
+      <div class="text-lg font-semibold text-yellow-800">{{ receitas_por_status.push_enviado|brl }}</div>
+      <div class="text-xs text-yellow-500">Potencial</div>
+    </div>
+
+    <div class="border rounded-lg p-3 bg-green-100">
+      <div class="text-xs text-green-600">Receita Estimada</div>
+      <div class="text-lg font-semibold text-green-800">{{ receitas_por_status.confirmado|brl }}</div>
+      <div class="text-xs text-green-500">Efetiva</div>
+    </div>
   </div>
 </div>
 

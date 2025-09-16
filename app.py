@@ -1,6 +1,7 @@
 from flask import Flask
 from config import Config
 from models import db
+from cache_manager import init_cache
 from views.auth import auth_bp
 from views.dashboard import dash_bp
 from views.receita import receita_bp
@@ -39,6 +40,9 @@ def create_app():
     db.init_app(app)
     with app.app_context():
         db.create_all()
+
+    # Cache
+    init_cache(app)
 
     # Blueprints
     app.register_blueprint(wellknown_bp)

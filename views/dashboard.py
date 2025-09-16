@@ -8,6 +8,7 @@ from collections import defaultdict
 import re
 import unicodedata
 import os
+from cache_manager import cached_by_user, invalidate_user_cache
 
 try:
     from supabase_client import supabase, get_supabase_client
@@ -15,6 +16,13 @@ except Exception:
     supabase = None
 
 dash_bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
+
+
+def _get_supabase():
+    """Obtém cliente Supabase autenticado."""
+    if not get_supabase_client:
+        return None
+    return get_supabase_client()
 
 
 # =============== helpers de sessão/consulta ===============
@@ -106,7 +114,9 @@ def _norm_name(s: str) -> str:
 
 
 # ---------------- consultas com filtro por usuário ----------------
+@cached_by_user('dashboard_data', timeout=600)  # 10 minutos
 def _fetch_clientes():
+    supabase = _get_supabase()
     if not supabase:
         return []
     try:
@@ -130,6 +140,8 @@ def _net_by_modelo(clientes):
 
 
 def _select_receita_table():
+    # Esta função usa o cliente administrativo para verificar existência de tabelas
+    supabase = _get_supabase()
     assert supabase is not None
     primary = "receita_itens"
     fallback = "receita_intens"
@@ -183,32 +195,15 @@ def salvar_meta_deprecated():
                 }).execute()
                 current_app.logger.info("SAVE_META: Meta criada via cliente autenticado")
             
+            # Invalidar cache do dashboard
+            invalidate_user_cache('dashboard_data')
+
             flash(f"Meta de {mes} salva com sucesso.", "success")
             
         except Exception as auth_error:
             current_app.logger.warning("SAVE_META: Cliente autenticado falhou: %s", auth_error)
-            current_app.logger.info("SAVE_META: Tentando fallback com cliente administrativo")
-            
-            # FALLBACK: Cliente administrativo com user_id manual
-            if not uid:
-                raise Exception("Sem user_id válido para fallback administrativo")
-            
-            existing_admin = supabase.table("metas_mensais").select("id").eq("mes", mes).eq("user_id", uid).limit(1).execute()
-            
-            if existing_admin.data:
-                result_admin = supabase.table("metas_mensais").update({
-                    "meta_receita": meta_receita
-                }).eq("mes", mes).eq("user_id", uid).execute()
-                current_app.logger.info("SAVE_META: Meta atualizada via admin fallback")
-            else:
-                result_admin = supabase.table("metas_mensais").insert({
-                    "mes": mes,
-                    "meta_receita": meta_receita,
-                    "user_id": uid
-                }).execute()
-                current_app.logger.info("SAVE_META: Meta criada via admin fallback")
-            
-            flash(f"Meta de {mes} salva com sucesso.", "success")
+            flash(f"Erro ao salvar meta: {auth_error}", "error")
+            raise
         
     except Exception as e:
         current_app.logger.exception("SAVE_META: Todas as estratégias falharam: %s", e)
@@ -229,6 +224,7 @@ def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
         y, mm = m.groups()
         return f"{y}-{int(mm):02d}"
 
+    supabase = _get_supabase()
     totais_by_id: dict[str, float] = defaultdict(float)
     mediana_ytd = 0.0
 
@@ -345,14 +341,15 @@ def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
 
 
 def _meta_do_mes():
+    supabase = _get_supabase()
     mes = datetime.today().strftime("%Y-%m")
     current_app.logger.info("META_DEBUG: === INICIANDO BUSCA PARA MES=%s ===", mes)
-    
+
     # Debug da sessão completa
     user_session = session.get("user", {})
-    current_app.logger.info("META_DEBUG: Sessão completa - email: %s, nome: %s, codigo_xp: %s", 
+    current_app.logger.info("META_DEBUG: Sessão completa - email: %s, nome: %s, codigo_xp: %s",
                            user_session.get("email"), user_session.get("nome"), user_session.get("codigo_xp"))
-    
+
     if not supabase:
         current_app.logger.warning("META_DEBUG: Supabase não disponível")
         return mes, 0.0
@@ -411,6 +408,7 @@ def _receita_escritorio_mes_atual_via_alocacoes():
     alocações efetivadas. Usa o ROA do produto (produtos.roa_pct).
     Receita = valor * (roa_pct / 100).
     """
+    supabase = _get_supabase()
     if not supabase:
         return 0.0
 
@@ -453,6 +451,7 @@ def _receita_assessor_recorrente():
     Busca o mês mais recente na coluna data_ref e usa a mesma lógica da tela de Receita.
     RETORNA: Receita do assessor (já é a receita líquida recorrente).
     """
+    supabase = _get_supabase()
     if not supabase:
         return 0.0
     
@@ -733,7 +732,8 @@ def _historico_receita_passiva_assessor() -> list:
     Retorna lista de dicionários: [{"mes": "2025-01", "valor": 1500.0}, ...]
     """
     current_app.logger.info("HIST_RECEITA_PASSIVA: INICIANDO função")
-    
+
+    supabase = _get_supabase()
     if not supabase:
         current_app.logger.info("HIST_RECEITA_PASSIVA: Supabase não disponível")
         return []
@@ -875,6 +875,7 @@ def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
                EFETIVADA e com produto.em_campanha = 'Sim'/true no mês vigente.
     Denominador: nº de clientes com NET > 0.
     """
+    supabase = _get_supabase()
     if not supabase:
         return 0.0, 0, 0
 
@@ -935,9 +936,10 @@ def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
 @login_required
 def debug():
     """Debug completo: sessão, autenticação, metas"""
+    supabase = _get_supabase()
     uid = _current_user_id()
     mes_atual = datetime.today().strftime("%Y-%m")
-    
+
     # Info básica
     debug_info = {
         "user_id": uid,

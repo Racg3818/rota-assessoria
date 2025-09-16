@@ -7,9 +7,15 @@ from datetime import datetime
 import re
 
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception:
-    supabase = None
+    get_supabase_client = None
+
+def _get_supabase():
+    """Obtém cliente Supabase autenticado."""
+    if not get_supabase_client:
+        return None
+    return get_supabase_client()
 
 fin_bp = Blueprint("finadvisor", __name__, url_prefix="/finadvisor")
 
@@ -82,6 +88,7 @@ def _to_float(x) -> float:
 
 def _latest_month() -> str:
     """Mês mais recente existente em receita_itens (YYYY-MM) do usuário logado."""
+    supabase = _get_supabase()
     if not supabase:
         return datetime.today().strftime("%Y-%m")
     try:
@@ -109,6 +116,7 @@ def _latest_month() -> str:
 def _clientes_nome_map_by_xp() -> dict[str, str]:
     """Mapa codigo_xp (apenas dígitos) -> nome do cliente (somente do dono)."""
     mapa: dict[str, str] = {}
+    supabase = _get_supabase()
     if not supabase:
         return mapa
     try:
@@ -130,6 +138,7 @@ def _clientes_nome_map_by_xp() -> dict[str, str]:
 def _clientes_modelo_map_by_xp() -> dict[str, str]:
     """Mapa codigo_xp (apenas dígitos) -> modelo do cliente (somente do dono)."""
     mapa: dict[str, str] = {}
+    supabase = _get_supabase()
     if not supabase:
         return mapa
     try:
@@ -149,6 +158,7 @@ def _clientes_modelo_map_by_xp() -> dict[str, str]:
 
 
 def _count_mes(mes: str, uid: str | None = None) -> int:
+    supabase = _get_supabase()
     if not supabase:
         return 0
     try:
@@ -163,6 +173,7 @@ def _count_mes(mes: str, uid: str | None = None) -> int:
 
 def _sum_mes(mes: str, uid: str | None = None) -> tuple[float, float]:
     """Soma do mês inteiro: (total_escritorio, total_assessor)."""
+    supabase = _get_supabase()
     if not supabase:
         return 0.0, 0.0
     total_escr = 0.0
@@ -199,6 +210,7 @@ def _fetch_all_rows_mes(mes: str, uid: str | None = None) -> list[dict]:
     Busca todas as linhas de receita_itens de um mês, paginando em lotes.
     Tenta com cliente_nome e faz fallback sem a coluna se necessário.
     """
+    supabase = _get_supabase()
     if not supabase:
         return []
 
@@ -271,6 +283,7 @@ def _fetch_supabase_rows(mes: str, start: int, end: int, uid: str | None = None)
     preenche o nome a partir de public.clientes.
     Retorna (rows, used_fallback: bool).
     """
+    supabase = _get_supabase()
     if not supabase:
         return [], False
 
@@ -332,6 +345,7 @@ def corrigir_codigos_list():
     do assessor (vindo do metadata). Permite editar por linha.
     Exclui 'LANÇ. ADMINISTRATIVO...' e derivados.
     """
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return redirect(url_for("finadvisor.index"))
@@ -432,6 +446,7 @@ def corrigir_codigos_update(item_id: str):
     """
     Atualiza o cliente_codigo de uma linha de receita_itens e sincroniza receita_clientes.
     """
+    supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
         return redirect(url_for("finadvisor.corrigir_codigos_list"))

@@ -5,9 +5,10 @@ import re
 
 # Tenta importar o Supabase; mantém fallback se indisponível
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception:
-    supabase = None
+    def get_supabase_client():
+        return None
 
 # Defina o Blueprint ANTES de usar decorators
 auth_bp = Blueprint('auth', __name__)
@@ -56,6 +57,7 @@ def login():
                 return render_template("login.html")
 
         # ---------- Fluxo Supabase (opcional) ----------
+        supabase = get_supabase_client()
         if supabase:
             user_id = None
             access_token = None

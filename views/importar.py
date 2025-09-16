@@ -6,9 +6,14 @@ import re
 
 # Supabase obrigatório
 try:
-    from supabase_client import supabase
+    from supabase_client import get_supabase_client
 except Exception:
-    supabase = None
+    get_supabase_client = None
+
+try:
+    from cache_manager import invalidate_user_cache
+except Exception:
+    invalidate_user_cache = None
 
 importar_bp = Blueprint('importar', __name__, url_prefix='/importar-finadvisor')
 
@@ -39,7 +44,7 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).strip().lower())
 
 def _supabase_required_or_error():
-    if not supabase:
+    if not get_supabase_client:
         raise RuntimeError("Supabase não está configurado neste ambiente.")
 
 # --- MB: manter o código MB, extraindo do Detalhe --------------------------------
@@ -86,6 +91,9 @@ def importar():
         try:
             _supabase_required_or_error()
 
+            # Obter cliente Supabase autenticado
+            supabase = get_supabase_client()
+
             # 🔑 user_id do dono (usado no DELETE e no INSERT)
             u = session.get("user") or {}
             uid = u.get("id") or u.get("supabase_user_id")
@@ -119,6 +127,11 @@ def importar():
                 "[Import %s uid=%s] linhas=%s | escr=%.2f | ass=%.2f | Supabase OK",
                 competencia, uid, len(rows_clean_uid), tot_escr, tot_ass
             )
+            # Invalidar caches relacionados
+            if invalidate_user_cache:
+                invalidate_user_cache('receitas_calc')
+                invalidate_user_cache('dashboard_data')
+
             flash(f'Importados {len(rows_clean_uid)} itens no Supabase para {competencia}.', 'success')
             return redirect(url_for('finadvisor.index', mes=competencia))
 
