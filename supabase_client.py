@@ -15,11 +15,22 @@ logging.info("SUPABASE_CONFIG: URL presente: %s", bool(_url))
 logging.info("SUPABASE_CONFIG: SERVICE_ROLE_KEY presente: %s", bool(_key))
 logging.info("SUPABASE_CONFIG: ANON_KEY presente: %s", bool(_anon_key))
 
-# Debug: verificar conteúdo das chaves (primeiros/últimos caracteres)
-if _anon_key:
+# Debug: verificar conteúdo das chaves (primeiros/últimos caracteres) com segurança
+if _anon_key and len(_anon_key) > 20:
     logging.info("SUPABASE_CONFIG: ANON_KEY prefix: %s...%s", _anon_key[:10], _anon_key[-10:])
-if _key:
+elif _anon_key:
+    logging.warning("SUPABASE_CONFIG: ANON_KEY muito curta: %d chars", len(_anon_key))
+
+if _key and len(_key) > 20:
     logging.info("SUPABASE_CONFIG: SERVICE_KEY prefix: %s...%s", _key[:10], _key[-10:])
+elif _key:
+    logging.warning("SUPABASE_CONFIG: SERVICE_KEY muito curta: %d chars", len(_key))
+
+# Validação adicional de chaves JWT
+if _anon_key and not _anon_key.startswith("eyJ"):
+    logging.error("SUPABASE_CONFIG: ANON_KEY não parece ser um JWT válido")
+if _key and not _key.startswith("eyJ"):
+    logging.error("SUPABASE_CONFIG: SERVICE_KEY não parece ser um JWT válido")
 
 # Cliente administrativo (para operações que não precisam de auth)
 supabase_admin: Client = create_client(_url, _key)

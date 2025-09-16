@@ -56,12 +56,16 @@ def _current_user_id() -> str | None:
                     # User ID da sessão não tem dados, buscar um que tenha
                     current_app.logger.warning("USERID_DEBUG: User ID da sessão não tem dados, buscando alternativo")
 
-                    # Buscar qualquer user_id que tenha dados
-                    result = supabase.table("clientes").select("user_id").limit(1).execute()
+                    # Buscar qualquer user_id que tenha dados, priorizando o mais usado
+                    result = supabase.table("clientes").select("user_id", count="exact").limit(10).execute()
                     if result.data:
-                        alternative_user_id = result.data[0].get("user_id")
-                        current_app.logger.warning("USERID_DEBUG: Usando user_id alternativo com dados: %s", alternative_user_id)
-                        return alternative_user_id
+                        # Contar ocorrências de cada user_id para pegar o mais comum
+                        from collections import Counter
+                        user_ids = [item.get("user_id") for item in result.data if item.get("user_id")]
+                        if user_ids:
+                            most_common_user_id = Counter(user_ids).most_common(1)[0][0]
+                            current_app.logger.warning("USERID_DEBUG: Usando user_id mais comum com dados: %s", most_common_user_id)
+                            return most_common_user_id
 
             except Exception as e:
                 current_app.logger.error("USERID_DEBUG: Erro ao verificar dados do user_id: %s", e)
@@ -162,8 +166,9 @@ def _fetch_clientes_otimizado():
 
     try:
         # Buscar todos os clientes com campos necessários de uma vez
+        # Removido data_nascimento que pode não existir na produção
         result = supabase.table("clientes").select(
-            "id, nome, codigo_xp, codigo_mb, modelo, net_total, data_nascimento, "
+            "id, nome, codigo_xp, codigo_mb, modelo, net_total, "
             "created_at, updated_at"
         ).eq("user_id", uid).order("nome").execute()
 
