@@ -114,7 +114,38 @@ def _norm_name(s: str) -> str:
 
 
 # ---------------- consultas com filtro por usuário ----------------
-@cached_by_user('dashboard_data', timeout=600)  # 10 minutos
+@cached_by_user('dashboard_clientes_otimizado', timeout=600)  # 10 minutos
+def _fetch_clientes_otimizado():
+    """
+    Busca clientes com dados otimizados para o dashboard.
+    Reduz consultas separadas ao Supabase.
+    """
+    supabase = _get_supabase()
+    if not supabase:
+        current_app.logger.warning("_fetch_clientes_otimizado: cliente Supabase indisponível")
+        return []
+
+    uid = _current_user_id()
+    if not uid:
+        current_app.logger.error("_fetch_clientes_otimizado: user_id inválido")
+        return []
+
+    try:
+        # Buscar todos os clientes com campos necessários de uma vez
+        result = supabase.table("clientes").select(
+            "id, nome, codigo_xp, codigo_mb, modelo, net_total, data_nascimento, "
+            "created_at, updated_at"
+        ).eq("user_id", uid).order("nome").execute()
+
+        clientes = result.data or []
+        current_app.logger.info("_fetch_clientes_otimizado: %d clientes carregados", len(clientes))
+        return clientes
+
+    except Exception as e:
+        current_app.logger.exception("_fetch_clientes_otimizado: erro ao buscar clientes: %s", e)
+        return []
+
+@cached_by_user('dashboard_data', timeout=600)  # 10 minutos - manter compatibilidade
 def _fetch_clientes():
     supabase = _get_supabase()
     if not supabase:
@@ -212,6 +243,7 @@ def salvar_meta_deprecated():
     return redirect(url_for("dashboard.index"))
 
 
+@cached_by_user('receita_ytd_por_cliente', timeout=300)  # 5 minutos
 def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
     from collections import defaultdict
     from datetime import datetime
@@ -604,6 +636,7 @@ def _receita_escritorio_recorrente(clientes) -> float:
     return receita_escritorio_rec
 
 
+@cached_by_user('receita_escritorio_total_mes', timeout=300)  # 5 minutos
 def _receita_escritorio_total_mes(clientes):
     """
     Calcula a receita total do escritório no mês atual:
@@ -726,6 +759,7 @@ def _calcular_roa(receita_escritorio_mes: float, clientes) -> float:
     return roa_percentual
 
 
+@cached_by_user('historico_receita_passiva', timeout=600)  # 10 minutos
 def _historico_receita_passiva_assessor() -> list:
     """
     Busca o histórico da receita passiva (assessor) mês a mês.
@@ -868,6 +902,7 @@ def _historico_receita_passiva_assessor() -> list:
         return []
 
 
+@cached_by_user('penetracao_base_mes', timeout=300)  # 5 minutos
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
     % Penetração de base no mês vigente.
@@ -991,34 +1026,96 @@ def debug():
     
     return f"<pre>{debug_info}</pre>"
 
-@dash_bp.route("/", methods=["GET"])
-@login_required
-def index():
+@cached_by_user('dashboard_metrics', timeout=180)  # 3 minutos - cache mais agressivo
+def _calcular_metricas_dashboard():
+    """
+    Calcula todas as métricas do dashboard de uma vez para otimizar performance.
+    Esta função é cacheada para evitar recálculos desnecessários.
+    """
     mes, meta = _meta_do_mes()
-    # Todas as leituras abaixo já aplicam filtro por user_id
-    clientes = _fetch_clientes()
-    
+    clientes = _fetch_clientes_otimizado()
+
     # Calcular receita total do escritório (ativa + recorrente)
     receita_total_mes = _receita_escritorio_total_mes(clientes)
-    
+
     # Calcular receita do assessor usando a fórmula original
     receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
-    
+
     # Calcular ROA
     roa_percentual = _calcular_roa(receita_total_mes, clientes)
-    
+
     # Buscar histórico da receita passiva
     historico_receita_passiva = _historico_receita_passiva_assessor()
-    
-    by_modelo = _net_by_modelo(clientes)
-    net_by_modelo = by_modelo
 
+    by_modelo = _net_by_modelo(clientes)
     mediana_net = _median([c.get("net_total") for c in clientes if _to_float(c.get("net_total")) > 0])
 
     totais_receita_by_id, mediana_receita_ytd = _receita_ytd_por_cliente(clientes)
 
     # ---- % Penetração de base (Campanha=Sim e Efetivada=Sim) ----
     penetracao_pct, penetracao_ativos, penetracao_base = _penetracao_base_mes(clientes)
+
+    # Adicionar timestamp para debug de cache
+    import time
+    result = {
+        'mes': mes,
+        'meta': meta,
+        'clientes': clientes,
+        'receita_total_mes': receita_total_mes,
+        'receita_assessor_mes': receita_assessor_mes,
+        'roa_percentual': roa_percentual,
+        'historico_receita_passiva': historico_receita_passiva,
+        'by_modelo': by_modelo,
+        'mediana_net': mediana_net,
+        'totais_receita_by_id': totais_receita_by_id,
+        'mediana_receita_ytd': mediana_receita_ytd,
+        'penetracao_pct': penetracao_pct,
+        'penetracao_ativos': penetracao_ativos,
+        'penetracao_base': penetracao_base,
+        '_cached_at': time.time()  # Para debug
+    }
+
+    current_app.logger.info("DASHBOARD_METRICS: Calculado em %.2fs", time.time() - result['_cached_at'])
+    return result
+
+def invalidar_cache_dashboard():
+    """
+    Invalida todos os caches relacionados ao dashboard.
+    Deve ser chamada quando dados relevantes são alterados.
+    """
+    try:
+        invalidate_user_cache('dashboard_metrics')
+        invalidate_user_cache('dashboard_clientes_otimizado')
+        invalidate_user_cache('receita_ytd_por_cliente')
+        invalidate_user_cache('receita_escritorio_total_mes')
+        invalidate_user_cache('historico_receita_passiva')
+        invalidate_user_cache('penetracao_base_mes')
+        current_app.logger.info("CACHE: Dashboard cache invalidado com sucesso")
+    except Exception as e:
+        current_app.logger.error("CACHE: Erro ao invalidar cache do dashboard: %s", e)
+
+@dash_bp.route("/", methods=["GET"])
+@login_required
+def index():
+    # Usar função otimizada com cache para calcular todas as métricas
+    metricas = _calcular_metricas_dashboard()
+
+    # Extrair dados da função cacheada
+    mes = metricas['mes']
+    meta = metricas['meta']
+    clientes = metricas['clientes']
+    receita_total_mes = metricas['receita_total_mes']
+    receita_assessor_mes = metricas['receita_assessor_mes']
+    roa_percentual = metricas['roa_percentual']
+    historico_receita_passiva = metricas['historico_receita_passiva']
+    by_modelo = metricas['by_modelo']
+    net_by_modelo = by_modelo  # Manter compatibilidade
+    mediana_net = metricas['mediana_net']
+    totais_receita_by_id = metricas['totais_receita_by_id']
+    mediana_receita_ytd = metricas['mediana_receita_ytd']
+    penetracao_pct = metricas['penetracao_pct']
+    penetracao_ativos = metricas['penetracao_ativos']
+    penetracao_base = metricas['penetracao_base']
 
     pontos = []
     counts = {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}

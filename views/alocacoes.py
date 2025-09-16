@@ -2,6 +2,21 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from utils import login_required
 from models import db  # fallback local opcional
 from cache_manager import cached_by_user, invalidate_user_cache
+
+def _invalidar_cache_relacionado():
+    """Invalida caches relacionados quando dados de alocação mudam."""
+    try:
+        # Invalidar cache do dashboard quando alocações mudam
+        from views.dashboard import invalidar_cache_dashboard
+        invalidar_cache_dashboard()
+
+        # Invalidar caches locais
+        invalidate_user_cache('alocacoes_receitas')
+        invalidate_user_cache('clientes_list')
+        invalidate_user_cache('produtos_list')
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error("Erro ao invalidar cache relacionado: %s", e)
 # (Opcional) se você tiver modelos locais para Produto/Alocacao/Cliente, pode importar
 try:
     from models import Cliente, Produto, Alocacao
@@ -451,6 +466,10 @@ def novo():
                     "efetivada": False,
                     "user_id": uid,
                 }).execute()
+
+                # Invalidar cache após inserção
+                _invalidar_cache_relacionado()
+
                 flash("Alocação cadastrada com sucesso!", "success")
 
                 # Invalidar cache de receitas
