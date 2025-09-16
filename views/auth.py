@@ -57,8 +57,31 @@ def login():
                 return render_template("login.html")
 
         # ---------- Fluxo Supabase (opcional) ----------
-        supabase = get_supabase_client()
-        if supabase:
+        # Para criação de usuários e login inicial, usar cliente admin e anon separadamente
+        supabase_admin = None
+        supabase_anon = None
+
+        try:
+            from supabase_client import supabase_admin as admin_client
+            supabase_admin = admin_client
+        except:
+            pass
+
+        try:
+            from supabase import create_client
+            import os
+            _url = os.getenv("SUPABASE_URL")
+            _anon_key = os.getenv("SUPABASE_ANON_KEY")
+            current_app.logger.info("AUTH: URL: %s, ANON_KEY disponível: %s", bool(_url), bool(_anon_key))
+            if _url and _anon_key:
+                supabase_anon = create_client(_url, _anon_key)
+                current_app.logger.info("AUTH: Cliente anônimo criado com sucesso")
+            else:
+                current_app.logger.error("AUTH: URL ou ANON_KEY faltando")
+        except Exception as e:
+            current_app.logger.error("AUTH: Erro ao criar cliente anônimo: %s", e)
+
+        if supabase_admin and supabase_anon:
             user_id = None
             access_token = None
             refresh_token = None
@@ -69,8 +92,8 @@ def login():
                 temp_password = f"temp_{codigo_xp}_{senha or 'default'}"
                 
                 try:
-                    # Criar usuário com senha temporária
-                    created = supabase.auth.admin.create_user({
+                    # Criar usuário com senha temporária usando cliente admin
+                    created = supabase_admin.auth.admin.create_user({
                         "email": email,
                         "password": temp_password,
                         "email_confirm": True,
@@ -83,10 +106,10 @@ def login():
                     current_app.logger.info("AUTH: Usuário criado com sucesso: %s", user_id)
                 except Exception as e:
                     current_app.logger.info("AUTH: create_user falhou (usuário já existe?): %s", e)
-                
-                # 2) Fazer login real para obter tokens
+
+                # 2) Fazer login real para obter tokens usando cliente anônimo
                 try:
-                    sign_in_result = supabase.auth.sign_in_with_password({
+                    sign_in_result = supabase_anon.auth.sign_in_with_password({
                         "email": email,
                         "password": temp_password
                     })
@@ -100,8 +123,8 @@ def login():
                     # Fallback: localizar usuário por email (API corrigida)
                     try:
                         # CORREÇÃO: list_users() não aceita parâmetro email
-                        # Listar todos e filtrar por email
-                        listed = supabase.auth.admin.list_users()
+                        # Listar todos e filtrar por email usando cliente admin
+                        listed = supabase_admin.auth.admin.list_users()
                         users = getattr(listed, "data", {}).get("users", []) if hasattr(listed, "data") else []
                         matching_users = [u for u in users if u.get("email") == email]
                         
@@ -153,6 +176,7 @@ def login():
             return redirect(url_for('dashboard.index'))
 
         # ---------- Fallback sem Supabase ----------
+        current_app.logger.warning("AUTH: Supabase não disponível ou falha na autenticação, usando fallback")
         # Gera um ID único baseado no email para manter isolamento de dados
         import hashlib
         fallback_id = hashlib.sha256(email.encode()).hexdigest()[:32]

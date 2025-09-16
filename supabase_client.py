@@ -15,6 +15,12 @@ logging.info("SUPABASE_CONFIG: URL presente: %s", bool(_url))
 logging.info("SUPABASE_CONFIG: SERVICE_ROLE_KEY presente: %s", bool(_key))
 logging.info("SUPABASE_CONFIG: ANON_KEY presente: %s", bool(_anon_key))
 
+# Debug: verificar conteúdo das chaves (primeiros/últimos caracteres)
+if _anon_key:
+    logging.info("SUPABASE_CONFIG: ANON_KEY prefix: %s...%s", _anon_key[:10], _anon_key[-10:])
+if _key:
+    logging.info("SUPABASE_CONFIG: SERVICE_KEY prefix: %s...%s", _key[:10], _key[-10:])
+
 # Cliente administrativo (para operações que não precisam de auth)
 supabase_admin: Client = create_client(_url, _key)
 

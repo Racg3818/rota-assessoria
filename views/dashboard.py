@@ -139,6 +139,14 @@ def _fetch_clientes_otimizado():
 
         clientes = result.data or []
         current_app.logger.info("_fetch_clientes_otimizado: %d clientes carregados", len(clientes))
+
+        # Debug: log alguns clientes para verificar dados
+        if clientes:
+            sample_cliente = clientes[0]
+            current_app.logger.info("_fetch_clientes_otimizado: Exemplo cliente: %s (NET: %s)",
+                                   sample_cliente.get('nome', 'N/A'),
+                                   sample_cliente.get('net_total', 'N/A'))
+
         return clientes
 
     except Exception as e:
@@ -1054,6 +1062,15 @@ def _calcular_metricas_dashboard():
 
     # ---- % Penetração de base (Campanha=Sim e Efetivada=Sim) ----
     penetracao_pct, penetracao_ativos, penetracao_base = _penetracao_base_mes(clientes)
+
+    # Debug: log das métricas calculadas
+    current_app.logger.info("DASHBOARD_DEBUG: Clientes carregados: %d", len(clientes))
+    current_app.logger.info("DASHBOARD_DEBUG: Receita total mês: %.2f", receita_total_mes)
+    current_app.logger.info("DASHBOARD_DEBUG: Receita assessor mês: %.2f", receita_assessor_mes)
+    current_app.logger.info("DASHBOARD_DEBUG: ROA percentual: %.2f", roa_percentual)
+    current_app.logger.info("DASHBOARD_DEBUG: Mediana NET: %.2f", mediana_net)
+    current_app.logger.info("DASHBOARD_DEBUG: Mediana receita YTD: %.2f", mediana_receita_ytd)
+    current_app.logger.info("DASHBOARD_DEBUG: Penetração: %.2f%% (%d/%d)", penetracao_pct, penetracao_ativos, penetracao_base)
 
     # Adicionar timestamp para debug de cache
     import time
