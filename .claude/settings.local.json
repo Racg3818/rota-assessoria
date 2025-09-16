@@ -7,7 +7,14 @@
       "Bash(git push:*)",
       "Bash(dir:*)",
       "Bash(pip install:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Read(//c/Users/renan/OneDrive/Desktop/Vega/**)",
+      "Bash(git restore:*)",
+      "Bash(timeout:*)",
+      "Bash(printenv)",
+      "Bash(grep:*)",
+      "Bash(set SUPABASE_URL=https://ldrlgppgvwqlleglndvm.supabase.co)",
+      "Bash(set:*)"
     ],
     "deny": [],
     "ask": []

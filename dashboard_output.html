@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard — Rota Assessoria</title>
+
+    <!-- Tailwind (CDN) — ok para dev; em produção prefira build com PostCSS/CLI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
+
+    <!-- Alpine.js (carregado uma única vez) -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        html, body { 
+            font-family: 'Inter', ui-sans-serif, system-ui; 
+            scroll-behavior: smooth;
+        }
+        
+        :root {
+            --sidebar-width: 280px;
+            --sidebar-collapsed: 80px;
+        }
+        
+        .sidebar-transition {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glassmorphism {
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        
+        .nav-item {
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+        
+        .nav-item:hover::before {
+            left: 100%;
+        }
+        
+        .nav-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .nav-item.active {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+        
+        .logo-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .floating-header {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .user-avatar {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .notification-badge {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .sidebar-footer {
+            background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+            border-radius: 16px;
+            margin: 16px;
+            padding: 16px;
+        }
+        
+        .content-area {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            position: relative;
+        }
+        
+        .content-wrapper {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            min-height: calc(100vh - 80px);
+            margin: 16px;
+            border-radius: 24px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .flash-message {
+            animation: slideInDown 0.5s ease-out;
+        }
+        
+        @keyframes slideInDown {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -100%, 0);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+        }
+        
+        .mobile-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 30;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .mobile-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                z-index: 40;
+                height: 100vh;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+            
+            .sidebar.open {
+                transform: translateX(0);
+            }
+        }
+        
+        .breadcrumb {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .breadcrumb a:hover {
+            color: #10b981;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body
+  class="bg-gray-100"
+  x-data="{ sidebarOpen: true, mobileMenuOpen: false }"
+  x-on:close-mobile.window="mobileMenuOpen = false"
+>
+    <!-- Mobile Overlay -->
+    <div class="mobile-overlay" :class="{ 'show': mobileMenuOpen }" @click="mobileMenuOpen = false"></div>
+
+    <div class="min-h-screen flex">
+        <!-- Sidebar -->
+        <aside 
+            class="sidebar sidebar-transition glassmorphism border-r border-gray-200/50 z-40"
+            :class="{
+                'w-80': sidebarOpen,
+                'w-20': !sidebarOpen,
+                'open': mobileMenuOpen
+            }"
+        >
+            <!-- Logo & Toggle -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-200/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <div x-show="sidebarOpen" class="transition-opacity duration-200">
+                        <h1 class="font-bold text-lg logo-gradient">Rota Assessoria</h1>
+                        <p class="text-xs text-gray-500">Financial Advisory</p>
+                    </div>
+                </div>
+                <button 
+                    class="p-2 rounded-xl hover:bg-gray-100 transition-colors duration-200"
+                    @click="sidebarOpen = !sidebarOpen"
+                >
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="flex-1 px-4 py-6 space-y-2">
+                <div x-show="sidebarOpen" class="px-3 mb-4">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Menu Principal</p>
+                </div>
+                
+                <a href="/dashboard" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 active">
+                    <div class="w-5 h-5 flex-shrink-0">📊</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Dashboard</span>
+                    <div x-show="sidebarOpen" class="ml-auto">
+                        <div class="status-indicator"></div>
+                    </div>
+                </a>
+                
+                <a href="/receita" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 ">
+                    <div class="w-5 h-5 flex-shrink-0">💰</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Receita (histórico)</span>
+                </a>
+                
+                <a href="/clientes" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 ">
+                    <div class="w-5 h-5 flex-shrink-0">👤</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Clientes</span>                    
+                </a>
+                
+                <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Gestão</p>
+                </div>
+                
+                <a href="/alocacoes" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 ">
+                    <div class="w-5 h-5 flex-shrink-0">📦</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Alocações</span>
+                </a>
+                
+                <a href="/alocacoes/produtos" class="nav-item flex items-center gap-3 px-4 py-3 ml-6 rounded-xl text-gray-600 hover:bg-gray-50 text-sm ">
+                    <div class="w-4 h-4 flex-shrink-0">🧩</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200">Produtos</span>
+                </a>
+                
+                <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Integração</p>
+                </div>
+                
+                <a href="/finadvisor" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 ">
+                    <div class="w-5 h-5 flex-shrink-0">📄</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">FinAdvisor</span>
+                </a>
+                
+                <a href="/importar-finadvisor" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 ">
+                    <div class="w-5 h-5 flex-shrink-0">⬆️</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Importar FinAdvisor</span>
+                    <div x-show="sidebarOpen" class="ml-auto">
+                        <div class="w-2 h-2 bg-orange-400 rounded-full notification-badge"></div>
+                    </div>
+                </a>
+            </nav>
+            
+            <!-- Sidebar Footer -->
+            <div class="sidebar-footer">
+                <div class="flex items-center gap-3">                    
+                    <div x-show="sidebarOpen" class="flex-1 transition-opacity duration-200">
+                        <p class="text-sm font-semibold text-gray-800">Usuario Teste</p>
+                        <p class="text-xs text-gray-500">Assessor de Investimentos</p>
+                    </div>
+                    <form method="post" action="/logout" x-show="sidebarOpen">
+                        <button class="p-2 text-gray-400 hover:text-red-500 transition-colors duration-200" title="Sair">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="flex-1 content-area" :class="{ 'ml-0': !sidebarOpen || mobileMenuOpen }">
+            <!-- Mobile Menu Button -->
+            <button 
+                class="md:hidden fixed top-4 left-4 z-50 p-3 bg-white rounded-xl shadow-lg"
+                @click="mobileMenuOpen = !mobileMenuOpen"
+            >
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+            
+            <!-- Header -->
+            <header class="floating-header sticky top-4 mx-4 mt-4 rounded-2xl px-6 py-4 flex items-center justify-between z-20">
+                <div class="flex items-center gap-4">
+                    <nav class="breadcrumb hidden md:flex items-center gap-2 text-sm">
+                        <a href="/dashboard" class="hover:text-emerald-600 transition-colors">Dashboard</a>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                        <span class="text-gray-900 font-medium">Resumo do mês 2025-09</span>
+                    </nav>
+                </div>                
+                
+            </header>
+            
+            <!-- Content Wrapper -->
+            <div class="content-wrapper">
+                <!-- Flash Messages -->
+                <div class="p-6 pb-0">
+                    
+                        
+                    
+                </div>
+                
+                <!-- Page Content -->
+                <section class="p-6">
+                    
+
+
+
+<!-- Formulário de meta do mês -->
+<!-- Meta gerenciada automaticamente via Metas Escritório -->
+<div class="mb-6 bg-blue-50 rounded-xl p-6 border border-blue-200">
+  <div class="text-center">
+    <h3 class="font-medium text-lg mb-2 text-blue-800">Meta do Mês: 2025-09</h3>
+    <div class="text-4xl font-bold text-blue-700 mb-3">R$ 48.614,00</div>
+    <div class="text-sm text-blue-600">
+      Gerenciada automaticamente via <a href="/alocacoes/metas-escritorio" class="underline font-semibold hover:text-blue-800">Metas Escritório</a>
+    </div>
+  </div>
+</div>
+
+
+<!-- KPIs principais -->
+<div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Receita do escritório (mês)</div>
+    <div class="text-2xl font-semibold">R$ 5.532,00</div>
+    <div class="text-xs text-gray-400 mt-1">
+      Ativa: R$ 5.532,00 + Recorrente: R$ 0,00
+    </div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Receita do assessor (mês)</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+    <div class="text-xs text-gray-400 mt-1">
+      80% × Receita Escritório × Média Ponderada
+    </div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Clientes cadastrados</div>
+    <div class="text-2xl font-semibold">0</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Mediana do NET (assessor)</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Mediana receita por cliente — 2025</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+  </div>
+
+  
+  
+    
+    
+  
+  
+  <div class="border rounded-xl p-4 bg-red-100 border-red-300">
+    <div class="text-sm text-gray-500">ROA da carteira</div>
+    <div class="text-2xl font-semibold text-red-800">
+      0%
+    </div>
+    <div class="text-xs text-gray-400 mt-1">
+      (Receita × 12) ÷ NET Total
+    </div>
+  </div>
+</div>
+
+<!-- Meta x Atingido -->
+<div class="grid grid-cols-1 gap-6 mt-6">
+  
+  
+  
+  
+    
+    
+  
+  
+  <div class="border rounded-xl p-6 bg-red-50 border-red-300">
+    <div class="text-center">
+      <h3 class="font-medium text-lg mb-2">Atingimento da Meta</h3>
+      <div class="text-4xl font-bold text-red-800 mb-3">11.4%</div>
+      
+      <div class="w-full bg-gray-200 rounded-full h-4 mb-3">
+        <div class="h-4 bg-emerald-500 rounded-full transition-all duration-300" style="width: 11.37943802196898%"></div>
+      </div>
+      
+      <div class="text-sm text-gray-600">
+        <span class="font-semibold">R$ 5.532,00</span> de <span class="font-semibold">R$ 48.614,00</span>
+      </div>
+      <div class="text-xs text-gray-500 mt-1">
+        
+          receita total do mês (2025-09)
+        
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Penetração de base -->
+<div class="grid grid-cols-1 gap-6 mt-6">
+  
+  
+    
+    
+  
+  
+  <div class="border rounded-xl p-6 bg-red-100 border-red-300">
+    <div class="text-center">
+      <h3 class="font-medium text-lg mb-2">Penetração de Base</h3>
+      <div class="text-4xl font-bold text-red-800 mb-3">0%</div>
+      <div class="text-sm text-gray-600">
+        <span class="font-semibold">0</span> de <span class="font-semibold">0</span> clientes
+      </div>
+      <div class="text-xs text-gray-500 mt-1">
+        com alocação efetivada em produto de campanha (2025-09)
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NET por modelo -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">TRADICIONAL</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">ASSET</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">FEE_BASED</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-xs text-gray-500">FEE_BASED_SEM_RV</div>
+    <div class="text-2xl font-semibold">R$ 0,00</div>
+    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+  </div>
+  
+  
+</div>
+
+<!-- Quadrantes -->
+<div class="border rounded-xl p-4 bg-white mt-6">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-medium">Quadrantes de clientes — Receita (X) x NET (Y) • 2025</h3>
+    <div class="text-sm text-gray-500">Base: 1 cliente(s)</div>
+  </div>
+
+  <div class="relative w-full h-64 md:h-80 border rounded overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none">
+      <div class="absolute top-0 bottom-0 left-1/2 w-px bg-black/40"></div>
+      <div class="absolute left-0 right-0 top-1/2 h-px bg-black/40"></div>
+    </div>
+
+    <div class="absolute top-1 left-1/2 -translate-x-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded">
+      Corte Receita (mediana): R$ 0,00
+    </div>
+    <div class="absolute right-1 top-1/2 -translate-y-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded transform rotate-90 origin-right">
+      Corte NET (mediana): R$ 0,00
+    </div>
+
+    <div class="absolute inset-0 grid grid-cols-2 grid-rows-2">
+      <div class="bg-amber-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q3 (0)</div>
+        <div class="text-sm opacity-90">0.00%</div>
+        <div class="text-[11px] mt-1 opacity-90">Alto NET • Baixa Receita</div>
+      </div>
+      <div class="bg-emerald-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q1 (0)</div>
+        <div class="text-sm opacity-90">0.00%</div>
+        <div class="text-[11px] mt-1 opacity-90">Alto NET • Alta Receita</div>
+      </div>
+      <div class="bg-slate-400 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q4 (0)</div>
+        <div class="text-sm opacity-90">0.00%</div>
+        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Baixa Receita</div>
+      </div>
+      <div class="bg-blue-500 flex flex-col items-center justify-center text-white">
+        <div class="text-lg md:text-xl font-semibold">Q2 (0)</div>
+        <div class="text-sm opacity-90">0.00%</div>
+        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Alta Receita</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 text-sm">
+    <div><b>Q1</b>: Receita ≥ <u>mediana</u> & NET ≥ <u>mediana</u></div>
+    <div><b>Q2</b>: Receita ≥ <u>mediana</u> & NET &lt; <u>mediana</u></div>
+    <div><b>Q3</b>: Receita &lt; <u>mediana</u> & NET ≥ <u>mediana</u></div>
+    <div><b>Q4</b>: Receita &lt; <u>mediana</u> & NET &lt; <u>mediana</u></div>
+  </div>
+</div>
+
+<!-- Lista de clientes por quadrante -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-4 h-4 bg-emerald-500 rounded"></div>
+      <h3 class="font-medium">Q1 - 
+        Alta Receita, Alto NET
+        
+        (0)
+      </h3>
+    </div>
+    
+      <p class="text-gray-500 text-sm">Nenhum cliente neste quadrante</p>
+    
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-4 h-4 bg-blue-500 rounded"></div>
+      <h3 class="font-medium">Q2 - 
+        Alta Receita, Baixo NET
+        
+        (0)
+      </h3>
+    </div>
+    
+      <p class="text-gray-500 text-sm">Nenhum cliente neste quadrante</p>
+    
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-4 h-4 bg-amber-500 rounded"></div>
+      <h3 class="font-medium">Q3 - 
+        Baixa Receita, Alto NET
+        
+        (0)
+      </h3>
+    </div>
+    
+      <p class="text-gray-500 text-sm">Nenhum cliente neste quadrante</p>
+    
+  </div>
+  
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-4 h-4 bg-slate-400 rounded"></div>
+      <h3 class="font-medium">Q4 - 
+        Baixa Receita, Baixo NET
+        
+        (0)
+      </h3>
+    </div>
+    
+      <p class="text-gray-500 text-sm">Nenhum cliente neste quadrante</p>
+    
+  </div>
+  
+</div>
+
+<!-- Gráfico evolução receita passiva assessor -->
+<div class="border rounded-xl p-4 bg-white mt-6">
+  <h3 class="font-medium mb-4">Evolução da Receita Passiva Assessor</h3>
+  <div class="h-64">
+    <canvas id="receitaPassivaChart"></canvas>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const ctx = document.getElementById('receitaPassivaChart').getContext('2d');
+  
+  const dados = [{"mes": "2025-01", "receita": 8933.460000000001}, {"mes": "2025-02", "receita": 8571.820000000003}, {"mes": "2025-03", "receita": 8144.449999999998}, {"mes": "2025-04", "receita": 7557.869999999995}, {"mes": "2025-05", "receita": 7655.6600000000035}, {"mes": "2025-06", "receita": 6890.579999999998}, {"mes": "2025-07", "receita": 11080.170000000006}, {"mes": "2025-08", "receita": 10028.83}];
+  console.log('Dados histórico receita passiva:', dados);
+  
+  const labels = dados.map(item => item.mes);
+  const valores = dados.map(item => item.receita);
+  
+  console.log('Labels:', labels);
+  console.log('Valores:', valores);
+  
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Receita Passiva Assessor',
+        data: valores,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return 'R$ ' + value.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              });
+            }
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Mês'
+          }
+        }
+      },
+      interaction: {
+        intersect: false,
+        mode: 'index'
+      },
+      tooltips: {
+        callbacks: {
+          label: function(context) {
+            return 'R$ ' + context.parsed.y.toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            });
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+
+
+                </section>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        // Auto-hide flash messages
+        document.addEventListener('DOMContentLoaded', function() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.animation = 'slideOutUp 0.5s ease-in forwards';
+                    setTimeout(() => {
+                        message.remove();
+                    }, 500);
+                }, 5000);
+            });
+        });
+        
+        // Handle responsive behavior sem depender de Alpine.store
+        function handleResize() {
+            if (window.innerWidth >= 768) {
+                // Dispara evento para o Alpine fechar o menu mobile
+                window.dispatchEvent(new CustomEvent('close-mobile'));
+            }
+        }
+        
+        window.addEventListener('resize', handleResize);
+        handleResize();
+    </script>
+	
+</body>
+</html>

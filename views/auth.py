@@ -142,10 +142,10 @@ def login():
             # Garante que sempre temos um user_id válido
             if not user_id:
                 import hashlib
-                # FALLBACK ÚNICO: email + código XP + timestamp para garantir unicidade
-                unique_string = f"{email}|{codigo_xp}|{nome}"
-                user_id = hashlib.sha256(unique_string.encode()).hexdigest()[:32]
-                current_app.logger.warning("AUTH: Supabase falhou, usando fallback user_id=%s para %s", user_id, email)
+                # FALLBACK CONSISTENTE: usar apenas email para gerar ID único
+                # Isso garante que o mesmo email sempre gere o mesmo user_id
+                user_id = hashlib.sha256(email.encode()).hexdigest()
+                current_app.logger.warning("AUTH: Supabase falhou, usando fallback user_id=%s para %s", user_id[:8], email)
                 
             # DEBUG: Log detalhado da sessão sendo criada
             session_data = {
@@ -179,7 +179,7 @@ def login():
         current_app.logger.warning("AUTH: Supabase não disponível ou falha na autenticação, usando fallback")
         # Gera um ID único baseado no email para manter isolamento de dados
         import hashlib
-        fallback_id = hashlib.sha256(email.encode()).hexdigest()[:32]
+        fallback_id = hashlib.sha256(email.encode()).hexdigest()
         
         session['user'] = {
             'id': fallback_id,
