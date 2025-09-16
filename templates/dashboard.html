@@ -24,8 +24,13 @@
     <div class="text-sm text-gray-500">Receita do escritório (mês)</div>
     <div class="text-2xl font-semibold">{{ receita_total|brl }}</div>
     <div class="text-xs text-gray-400 mt-1">
-      Ativa: {{ receita_ativa_mes|brl }} + Recorrente: {{ receita_passiva_mes|brl }}
+      Ativa: {{ receita_ativa_mes|brl }} + Recorrente: {{ receita_recorrente_mes|brl }}
     </div>
+    {% if (receita_recorrente_mes or 0) <= 0 %}
+    <div class="text-xs text-orange-600 mt-1">
+      Para ver receita recorrente: <a href="{{ url_for('receita.index') }}" class="underline">configure produtos recorrentes</a> e verifique se os clientes têm <a href="{{ url_for('clientes.index') }}" class="underline">repasse configurado</a>
+    </div>
+    {% endif %}
   </div>
 
   <div class="border rounded-xl p-4 bg-white">

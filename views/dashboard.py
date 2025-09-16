@@ -148,7 +148,6 @@ def _norm_name(s: str) -> str:
 
 
 # ---------------- consultas com filtro por usuário ----------------
-@cached_by_user('dashboard_clientes_otimizado', timeout=600)  # 10 minutos
 def _fetch_clientes_otimizado():
     """
     Busca clientes com dados otimizados para o dashboard.
@@ -166,10 +165,10 @@ def _fetch_clientes_otimizado():
 
     try:
         # Buscar todos os clientes com campos necessários de uma vez
-        # Removido data_nascimento que pode não existir na produção
+        # Incluindo repasse que é essencial para cálculos ponderados
         result = supabase.table("clientes").select(
-            "id, nome, codigo_xp, codigo_mb, modelo, net_total, "
-            "created_at, updated_at"
+            "id, nome, codigo_xp, codigo_mb, modelo, net_total, repasse, "
+            "created_at"
         ).eq("user_id", uid).order("nome").execute()
 
         clientes = result.data or []
@@ -188,7 +187,6 @@ def _fetch_clientes_otimizado():
         current_app.logger.exception("_fetch_clientes_otimizado: erro ao buscar clientes: %s", e)
         return []
 
-@cached_by_user('dashboard_data', timeout=600)  # 10 minutos - manter compatibilidade
 def _fetch_clientes():
     supabase = _get_supabase()
     if not supabase:
@@ -286,7 +284,6 @@ def salvar_meta_deprecated():
     return redirect(url_for("dashboard.index"))
 
 
-@cached_by_user('receita_ytd_por_cliente', timeout=300)  # 5 minutos
 def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
     from collections import defaultdict
     from datetime import datetime
@@ -581,11 +578,12 @@ def _receita_assessor_recorrente():
         user_session = session.get("user", {})
         user_key = (user_session.get("email") or user_session.get("nome") or "anon").strip().lower()
 
+        # Usar a mesma lógica da tela de Receita: primeiro por user_key, depois por user_id
         res_prefs = (supabase.table("user_prefs")
                     .select("value")
-                    .eq("user_id", uid)
-                    .eq("user_key", user_key)  # Adicionar user_key para compatibilidade
+                    .eq("user_key", user_key)
                     .eq("key", "recorrencia_produtos")
+                    .eq("user_id", uid)
                     .limit(1)
                     .execute())
 
@@ -611,7 +609,7 @@ def _receita_assessor_recorrente():
             elif isinstance(categorias_value, list):
                 selected_set = set(categorias_value)
         
-        current_app.logger.info("RECEITA_PASSIVA: Produtos selecionados: %s", list(selected_set))
+        current_app.logger.info("RECEITA_PASSIVA: Produtos selecionados: %s (%d produtos)", list(selected_set), len(selected_set))
         
         # Buscar receitas do último mês disponível
         try:
@@ -672,43 +670,72 @@ def _receita_escritorio_recorrente(clientes) -> float:
     Fórmula: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
     """
     receita_assessor_rec = _receita_assessor_recorrente()
-    
+
+    current_app.logger.info("RECEITA_ESCRIT_REC: Receita assessor recorrente = %.2f", receita_assessor_rec)
+
     if receita_assessor_rec <= 0:
-        current_app.logger.info("RECEITA_ESCRIT_REC: Receita assessor recorrente = 0, retornando 0")
+        current_app.logger.warning("RECEITA_ESCRIT_REC: Receita assessor recorrente = 0, retornando 0. Verifique se há dados na tabela receita_itens e produtos configurados como recorrentes.")
         return 0.0
-    
+
     if not clientes:
         current_app.logger.warning("RECEITA_ESCRIT_REC: Sem clientes para calcular média ponderada")
         return 0.0
-    
+
+    # Verificar se campo repasse existe nos clientes
+    if 'repasse' not in clientes[0]:
+        current_app.logger.error("RECEITA_ESCRIT_REC: Campo 'repasse' não encontrado nos clientes! Campos disponíveis: %s",
+                                list(clientes[0].keys()) if clientes else [])
+        return 0.0
+
     # Calcular média ponderada (mesmo cálculo usado em _receita_assessor_mes)
     total_net = 0.0
     total_net_ponderado = 0.0
-    
-    for cliente in clientes:
+    clientes_com_net = 0
+    clientes_com_repasse = 0
+
+    for i, cliente in enumerate(clientes):
         net_total = _to_float(cliente.get("net_total"))
         repasse = _to_float(cliente.get("repasse"))
-        
+        nome = cliente.get("nome", "N/A")[:30]
+
         if net_total > 0:
+            clientes_com_net += 1
             total_net += net_total
-            total_net_ponderado += (net_total * repasse / 100.0)
-    
+            if repasse > 0:
+                clientes_com_repasse += 1
+                ponderado_cliente = (net_total * repasse / 100.0)
+                total_net_ponderado += ponderado_cliente
+
+                # Debug apenas dos primeiros 3 clientes
+                if i < 3:
+                    current_app.logger.info("RECEITA_ESCRIT_REC: Cliente %d: %s - NET=%.2f, repasse=%.2f%%, ponderado=%.2f",
+                                           i+1, nome, net_total, repasse, ponderado_cliente)
+
+    current_app.logger.info("RECEITA_ESCRIT_REC: %d clientes total, %d com NET>0, %d com repasse>0",
+                           len(clientes), clientes_com_net, clientes_com_repasse)
+    current_app.logger.info("RECEITA_ESCRIT_REC: total_net=%.2f, total_net_ponderado=%.2f",
+                           total_net, total_net_ponderado)
+
     if total_net == 0:
         current_app.logger.warning("RECEITA_ESCRIT_REC: Nenhum cliente com NET > 0")
         return 0.0
-    
+
+    if total_net_ponderado == 0:
+        current_app.logger.warning("RECEITA_ESCRIT_REC: Total NET ponderado = 0. Verifique se os clientes têm repasse configurado.")
+        return 0.0
+
     media_ponderada_repasse = total_net_ponderado / total_net
-    
+
     # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
     receita_escritorio_rec = receita_assessor_rec / 0.80 / media_ponderada_repasse
-    
-    current_app.logger.info("RECEITA_ESCRIT_REC: %.2f ÷ 80%% ÷ %.4f = %.2f", 
+
+    current_app.logger.info("RECEITA_ESCRIT_REC: Média ponderada: %.4f (%.2f%%) | Resultado: %.2f ÷ 80%% ÷ %.4f = %.2f",
+                           media_ponderada_repasse, media_ponderada_repasse * 100,
                            receita_assessor_rec, media_ponderada_repasse, receita_escritorio_rec)
-    
+
     return receita_escritorio_rec
 
 
-@cached_by_user('receita_escritorio_total_mes', timeout=300)  # 5 minutos
 def _receita_escritorio_total_mes(clientes):
     """
     Calcula a receita total do escritório no mês atual:
@@ -716,10 +743,10 @@ def _receita_escritorio_total_mes(clientes):
     """
     receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
     receita_recorrente = _receita_escritorio_recorrente(clientes)
-    
+
     total = receita_ativa + receita_recorrente
-    
-    current_app.logger.info("RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f = Total=%.2f", 
+
+    current_app.logger.info("RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f = Total=%.2f",
                            receita_ativa, receita_recorrente, total)
     
     return total
@@ -729,70 +756,84 @@ def _receita_assessor_mes(receita_escritorio: float, clientes) -> float:
     """
     Calcula a receita do assessor no mês usando a fórmula:
     Receita Assessor = Receita Escritório × 80% × (Média Ponderada do NET × Repasse)
-    
+
     Média Ponderada = Σ(NET_cliente × Repasse_cliente) / Σ(NET_cliente)
     """
-    current_app.logger.info("=== DEBUG RECEITA ASSESSOR ===")
-    current_app.logger.info("Receita Escritório recebida: %.2f", receita_escritorio)
-    current_app.logger.info("Total de clientes recebidos: %d", len(clientes) if clientes else 0)
-    
+    current_app.logger.info("RECEITA_ASSESSOR: Iniciando cálculo - Receita Escritório: %.2f, Clientes: %d",
+                           receita_escritorio, len(clientes) if clientes else 0)
+
     if not clientes:
         current_app.logger.warning("RECEITA_ASSESSOR: Lista de clientes vazia")
         return 0.0
-        
+
     if receita_escritorio <= 0:
         current_app.logger.warning("RECEITA_ASSESSOR: Receita escritório <= 0: %.2f", receita_escritorio)
         return 0.0
-    
+
     total_net = 0.0
     total_net_ponderado = 0.0
     clientes_validos = 0
-    
-    current_app.logger.info("Analisando clientes individualmente:")
-    
+    clientes_sem_repasse = 0
+
+    # Verificar se campo repasse existe nos clientes
+    if clientes and 'repasse' not in clientes[0]:
+        current_app.logger.error("RECEITA_ASSESSOR: Campo 'repasse' não encontrado nos clientes! Campos disponíveis: %s",
+                                list(clientes[0].keys()) if clientes else [])
+        return 0.0
+
     for i, cliente in enumerate(clientes):
-        nome = cliente.get("nome", "Sem nome")[:20]  # Primeiros 20 chars
+        nome = cliente.get("nome", "Sem nome")[:30]  # Primeiros 30 chars
         net_total = _to_float(cliente.get("net_total"))
         repasse = _to_float(cliente.get("repasse"))
-        
-        current_app.logger.info("Cliente %d: %s | NET: %.2f | Repasse: %.2f%%", 
-                               i+1, nome, net_total, repasse)
-        
+
+        # Debug apenas dos primeiros 5 clientes para não poluir log
+        if i < 5:
+            current_app.logger.info("RECEITA_ASSESSOR: Cliente %d: %s | NET: %.2f | Repasse: %.2f%%",
+                                   i+1, nome, net_total, repasse)
+
         # Só considerar clientes com NET > 0
         if net_total > 0:
             clientes_validos += 1
-            contribution = net_total * repasse / 100.0
             total_net += net_total
-            total_net_ponderado += contribution
-            
-            current_app.logger.info("  ✅ Válido | Contribuição: %.2f × %.2f%% = %.2f", 
-                                   net_total, repasse, contribution)
+
+            if repasse > 0:
+                contribution = net_total * repasse / 100.0
+                total_net_ponderado += contribution
+
+                if i < 5:
+                    current_app.logger.info("  ✅ Válido | Contribuição: %.2f × %.2f%% = %.2f",
+                                           net_total, repasse, contribution)
+            else:
+                clientes_sem_repasse += 1
+                if i < 5:
+                    current_app.logger.info("  ⚠️  NET válido mas repasse = 0")
         else:
-            current_app.logger.info("  ❌ Ignorado (NET <= 0)")
-    
-    current_app.logger.info("RESUMO:")
-    current_app.logger.info("- Clientes válidos (NET > 0): %d de %d", clientes_validos, len(clientes))
-    current_app.logger.info("- Total NET: %.2f", total_net)
-    current_app.logger.info("- Total NET ponderado: %.2f", total_net_ponderado)
-    
+            if i < 5:
+                current_app.logger.info("  ❌ Ignorado (NET <= 0)")
+
+    current_app.logger.info("RECEITA_ASSESSOR: %d clientes válidos (NET>0), %d sem repasse configurado",
+                           clientes_validos, clientes_sem_repasse)
+    current_app.logger.info("RECEITA_ASSESSOR: Total NET: %.2f, Total NET ponderado: %.2f",
+                           total_net, total_net_ponderado)
+
     if total_net == 0:
         current_app.logger.warning("RECEITA_ASSESSOR: Nenhum cliente com NET > 0")
         return 0.0
-    
+
+    if total_net_ponderado == 0:
+        current_app.logger.warning("RECEITA_ASSESSOR: Total NET ponderado = 0. Verifique se os clientes têm repasse configurado.")
+        return 0.0
+
     # Calcular média ponderada do repasse
     media_ponderada_repasse = total_net_ponderado / total_net
-    
-    current_app.logger.info("- Média ponderada: %.2f / %.2f = %.4f (%.2f%%)", 
-                           total_net_ponderado, total_net, media_ponderada_repasse, media_ponderada_repasse * 100)
-    
+
     # Fórmula final
     receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse
-    
-    current_app.logger.info("FÓRMULA FINAL:")
-    current_app.logger.info("Receita Assessor = %.2f × 80%% × %.4f = %.2f", 
+
+    current_app.logger.info("RECEITA_ASSESSOR: Média ponderada: %.4f (%.2f%%) | Resultado: %.2f × 80%% × %.4f = %.2f",
+                           media_ponderada_repasse, media_ponderada_repasse * 100,
                            receita_escritorio, media_ponderada_repasse, receita_assessor)
-    current_app.logger.info("=== FIM DEBUG RECEITA ASSESSOR ===")
-    
+
     return receita_assessor
 
 
@@ -831,7 +872,6 @@ def _calcular_roa(receita_escritorio_mes: float, clientes) -> float:
     return roa_percentual
 
 
-@cached_by_user('historico_receita_passiva', timeout=600)  # 10 minutos
 def _historico_receita_passiva_assessor() -> list:
     """
     Busca o histórico da receita passiva (assessor) mês a mês.
@@ -987,7 +1027,6 @@ def _historico_receita_passiva_assessor() -> list:
         return []
 
 
-@cached_by_user('penetracao_base_mes', timeout=300)  # 5 minutos
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
     % Penetração de base no mês vigente.
@@ -1135,7 +1174,6 @@ def debug():
     
     return f"<pre>{debug_info}</pre>"
 
-@cached_by_user('dashboard_metrics', timeout=180)  # 3 minutos - cache mais agressivo
 def _calcular_metricas_dashboard():
     """
     Calcula todas as métricas do dashboard de uma vez para otimizar performance.
@@ -1144,8 +1182,25 @@ def _calcular_metricas_dashboard():
     mes, meta = _meta_do_mes()
     clientes = _fetch_clientes_otimizado()
 
+    # Verificar se os clientes têm todos os campos necessários para cálculos
+    if clientes:
+        primeiro_cliente = clientes[0]
+        campos_necessarios = ['id', 'nome', 'net_total', 'repasse', 'codigo_xp', 'codigo_mb']
+        campos_faltando = [campo for campo in campos_necessarios if campo not in primeiro_cliente]
+
+        if campos_faltando:
+            current_app.logger.warning("DASHBOARD_METRICS: Campos faltando em _fetch_clientes_otimizado: %s. Usando _fetch_clientes como fallback.", campos_faltando)
+            clientes = _fetch_clientes()
+        else:
+            current_app.logger.info("DASHBOARD_METRICS: Todos os campos necessários presentes em _fetch_clientes_otimizado")
+    else:
+        current_app.logger.warning("DASHBOARD_METRICS: Nenhum cliente retornado por _fetch_clientes_otimizado. Usando _fetch_clientes como fallback.")
+        clientes = _fetch_clientes()
+
     # Calcular receita total do escritório (ativa + recorrente)
-    receita_total_mes = _receita_escritorio_total_mes(clientes)
+    receita_total_mes = float(_receita_escritorio_total_mes(clientes) or 0.0)
+    receita_ativa_mes = float(_receita_escritorio_mes_atual_via_alocacoes() or 0.0)
+    receita_recorrente_mes = receita_total_mes - receita_ativa_mes
 
     # Calcular receita do assessor usando a fórmula original
     receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
@@ -1180,6 +1235,8 @@ def _calcular_metricas_dashboard():
         'meta': meta,
         'clientes': clientes,
         'receita_total_mes': receita_total_mes,
+        'receita_ativa_mes': receita_ativa_mes,
+        'receita_recorrente_mes': receita_recorrente_mes,
         'receita_assessor_mes': receita_assessor_mes,
         'roa_percentual': roa_percentual,
         'historico_receita_passiva': historico_receita_passiva,
@@ -1252,6 +1309,8 @@ def index():
     meta = metricas['meta']
     clientes = metricas['clientes']
     receita_total_mes = metricas['receita_total_mes']
+    receita_ativa_mes = metricas['receita_ativa_mes']
+    receita_recorrente_mes = metricas['receita_recorrente_mes']
     receita_assessor_mes = metricas['receita_assessor_mes']
     roa_percentual = metricas['roa_percentual']
     historico_receita_passiva = metricas['historico_receita_passiva']
@@ -1324,8 +1383,9 @@ def index():
         penetracao_ativos=penetracao_ativos,
         penetracao_base=penetracao_base,
         # Detalhamento da receita (ativa + recorrente)
-        receita_ativa_mes=_receita_escritorio_mes_atual_via_alocacoes(),
-        receita_passiva_mes=_receita_escritorio_recorrente(clientes),
+        receita_ativa_mes=receita_ativa_mes,
+        receita_recorrente_mes=receita_recorrente_mes,
+        receita_passiva_mes=_receita_assessor_recorrente(),
         # Receita do assessor
         receita_assessor_mes=receita_assessor_mes,
         # Receita assessor recorrente (para debug)
