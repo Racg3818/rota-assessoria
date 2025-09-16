@@ -42,7 +42,26 @@ def get_supabase_client():
             # Cliente autenticado com token do usuário
             current_app.logger.info("SUPABASE_CLIENT: Criando cliente autenticado")
             client = create_client(_url, _anon_key)
-            client.auth.set_session(access_token, user.get("refresh_token", ""))
+
+            # Corrigindo método para Supabase v2+
+            refresh_token = user.get("refresh_token", "")
+            session_data = {
+                "access_token": access_token,
+                "refresh_token": refresh_token
+            }
+
+            # Usar o método correto para definir a sessão
+            try:
+                client.auth._session = session_data
+                current_app.logger.info("SUPABASE_CLIENT: Sessão definida com sucesso")
+            except Exception as session_error:
+                current_app.logger.warning("SUPABASE_CLIENT: Falha ao definir sessão diretamente: %s", session_error)
+                # Fallback: tentar método alternativo
+                try:
+                    client.auth.set_auth(access_token)
+                    current_app.logger.info("SUPABASE_CLIENT: Auth definida com método alternativo")
+                except Exception as auth_error:
+                    current_app.logger.warning("SUPABASE_CLIENT: Método alternativo falhou: %s", auth_error)
 
             # Testar se o cliente está funcionando
             try:
@@ -51,6 +70,8 @@ def get_supabase_client():
                 return client
             except Exception as e:
                 current_app.logger.error("SUPABASE_CLIENT: Falha ao verificar usuário autenticado: %s", e)
+                # Se falhar, usar cliente administrativo mas com log de aviso
+                current_app.logger.warning("SUPABASE_CLIENT: Usando cliente administrativo devido a falha na autenticação")
 
         except Exception as e:
             current_app.logger.error("SUPABASE_CLIENT: Falha ao criar cliente autenticado: %s", e)

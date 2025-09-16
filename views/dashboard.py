@@ -467,21 +467,35 @@ def _receita_escritorio_mes_atual_via_alocacoes():
         rows = []
 
     for r in rows:
-        # apenas mês vigente
-        if (r.get("created_at") or "")[:7] != mes_atual:
-            continue
-        
         # IMPORTANTE: Só considerar alocações EFETIVADAS
         efetivada = r.get("efetivada")
         if not efetivada:  # Se não efetivada, pular
+            continue
+
+        # Para receita ativa do mês, considerar alocações criadas OU efetivadas no mês atual
+        # (Uma alocação pode ter sido criada em mês anterior mas efetivada agora)
+        created_month = (r.get("created_at") or "")[:7]
+        # TODO: Se tivermos campo 'efetivada_at', usar ele também
+
+        if created_month != mes_atual:
+            # Por enquanto, manter lógica original (apenas created_at)
+            # Mas adicionar log para debug
+            current_app.logger.debug("RECEITA_ATIVA: Alocação criada em %s (mês atual: %s) - ignorando",
+                                    created_month, mes_atual)
             continue
 
         valor = _to_float(r.get("valor"))
         produto = r.get("produto") or {}
         roa_pct = _to_float(produto.get("roa_pct"))
 
-        total += valor * (roa_pct / 100.0)
+        receita_item = valor * (roa_pct / 100.0)
+        total += receita_item
 
+        current_app.logger.debug("RECEITA_ATIVA: Valor=%.2f × ROA=%.2f%% = Receita=%.2f",
+                                valor, roa_pct, receita_item)
+
+    current_app.logger.info("RECEITA_ATIVA_TOTAL: %.2f (de %d alocações analisadas)",
+                           total, len(rows))
     return total
 
 
@@ -528,12 +542,27 @@ def _receita_assessor_recorrente():
                                mes_target, ultimo_mes_disponivel)
         
         # Buscar categorias salvas nas preferências do usuário
+        # Usando mesma lógica da receita.py para compatibilidade
+        user_session = session.get("user", {})
+        user_key = (user_session.get("email") or user_session.get("nome") or "anon").strip().lower()
+
         res_prefs = (supabase.table("user_prefs")
                     .select("value")
                     .eq("user_id", uid)
+                    .eq("user_key", user_key)  # Adicionar user_key para compatibilidade
                     .eq("key", "recorrencia_produtos")
                     .limit(1)
                     .execute())
+
+        # Fallback para buscar apenas por user_id se não encontrar com user_key
+        if not res_prefs.data:
+            current_app.logger.info("RECEITA_PASSIVA: Tentando fallback sem user_key")
+            res_prefs = (supabase.table("user_prefs")
+                        .select("value")
+                        .eq("user_id", uid)
+                        .eq("key", "recorrencia_produtos")
+                        .limit(1)
+                        .execute())
         
         selected_set = set()
         if res_prefs.data:
@@ -821,13 +850,26 @@ def _historico_receita_passiva_assessor() -> list:
             current_app.logger.info("HIST_RECEITA_PASSIVA: Nenhuma receita encontrada")
             return []
         
-        # Buscar categorias selecionadas
+        # Buscar categorias selecionadas - mesma lógica
+        user_session = session.get("user", {})
+        user_key = (user_session.get("email") or user_session.get("nome") or "anon").strip().lower()
+
         res_prefs = (supabase.table("user_prefs")
                     .select("value")
                     .eq("user_id", uid)
+                    .eq("user_key", user_key)
                     .eq("key", "recorrencia_produtos")
                     .limit(1)
                     .execute())
+
+        # Fallback sem user_key
+        if not res_prefs.data:
+            res_prefs = (supabase.table("user_prefs")
+                        .select("value")
+                        .eq("user_id", uid)
+                        .eq("key", "recorrencia_produtos")
+                        .limit(1)
+                        .execute())
         
         selected_set = set()
         if res_prefs.data:
@@ -948,24 +990,48 @@ def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
 
     # ---- Numerador: únicos no mês, campanha=Sim e efetivada=Sim ----
     clientes_com_aloc = set()
+    debug_count = 0
+
     for r in rows:
+        debug_count += 1
         created_ym = (r.get("created_at") or "")[:7]
+
+        # Debug dos primeiros 5 registros
+        if debug_count <= 5:
+            produto = r.get("produto") or {}
+            current_app.logger.info("PENETRACAO_DEBUG %d: created=%s, mes_atual=%s, em_campanha=%s, efetivada=%s, cliente_id=%s",
+                                   debug_count, created_ym, mes_atual,
+                                   produto.get("em_campanha"), r.get("efetivada"), r.get("cliente_id"))
+
         if created_ym != mes_atual:
             continue
 
         produto = r.get("produto") or {}
-        if not _is_yes(produto.get("em_campanha")):
+        em_campanha = produto.get("em_campanha")
+        if not _is_yes(em_campanha):
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_DEBUG %d: Rejeitado por em_campanha=%s", debug_count, em_campanha)
             continue
 
-        if not _is_yes(r.get("efetivada")) and not bool(r.get("efetivada")):
+        efetivada = r.get("efetivada")
+        if not _is_yes(efetivada) and not bool(efetivada):
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_DEBUG %d: Rejeitado por efetivada=%s", debug_count, efetivada)
             continue
 
         cid = r.get("cliente_id")
         if cid in base_ids:
             clientes_com_aloc.add(cid)
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_DEBUG %d: ACEITO - cliente_id=%s", debug_count, cid)
 
     numerador = len(clientes_com_aloc)
     pct = (numerador / denominador * 100.0) if denominador else 0.0
+
+    current_app.logger.info("PENETRACAO_BASE: Base clientes (NET>0): %d", denominador)
+    current_app.logger.info("PENETRACAO_BASE: Alocações analisadas: %d", len(rows))
+    current_app.logger.info("PENETRACAO_BASE: Clientes com alocação válida: %d", numerador)
+    current_app.logger.info("PENETRACAO_BASE: Percentual: %.2f%% (%d/%d)", pct, numerador, denominador)
 
     current_app.logger.info(
         "[PENETRACAO] mes=%s ativos=%s base=%s pct=%.2f (produto.em_campanha=Sim & efetivada=Sim)",
@@ -1103,6 +1169,7 @@ def invalidar_cache_dashboard():
     try:
         invalidate_user_cache('dashboard_metrics')
         invalidate_user_cache('dashboard_clientes_otimizado')
+        invalidate_user_cache('dashboard_data')  # Cache original
         invalidate_user_cache('receita_ytd_por_cliente')
         invalidate_user_cache('receita_escritorio_total_mes')
         invalidate_user_cache('historico_receita_passiva')
@@ -1110,6 +1177,34 @@ def invalidar_cache_dashboard():
         current_app.logger.info("CACHE: Dashboard cache invalidado com sucesso")
     except Exception as e:
         current_app.logger.error("CACHE: Erro ao invalidar cache do dashboard: %s", e)
+
+def invalidar_cache_dashboard_forcado():
+    """
+    Força invalidação completa de cache, incluindo caches que podem estar corrompidos.
+    """
+    from cache_manager import invalidate_user_cache
+
+    caches_para_limpar = [
+        'dashboard_metrics',
+        'dashboard_clientes_otimizado',
+        'dashboard_data',
+        'receita_ytd_por_cliente',
+        'receita_escritorio_total_mes',
+        'historico_receita_passiva',
+        'penetracao_base_mes',
+        'clientes_list',
+        'produtos_list',
+        'alocacoes_receitas'
+    ]
+
+    current_app.logger.info("CACHE_FORCADO: Invalidando %d tipos de cache", len(caches_para_limpar))
+
+    for cache_key in caches_para_limpar:
+        try:
+            invalidate_user_cache(cache_key)
+            current_app.logger.info("CACHE_FORCADO: Cache '%s' invalidado", cache_key)
+        except Exception as e:
+            current_app.logger.error("CACHE_FORCADO: Erro ao invalidar cache '%s': %s", cache_key, e)
 
 @dash_bp.route("/", methods=["GET"])
 @login_required
