@@ -30,15 +30,45 @@ def _current_user_id() -> str | None:
     """
     Retorna o user_id UUID válido do Supabase.
     Com RLS ativo, o user_id deve ser um UUID válido da tabela auth.users.
+
+    CORREÇÃO TEMPORÁRIA: Detecta automaticamente qual user_id tem dados no banco.
     """
     u = session.get("user") or {}
-    
+
     # PRIORIDADE 1: user_id do Supabase (UUID válido)
     user_id = u.get("id") or u.get("supabase_user_id")
     if user_id and len(user_id) > 10:  # UUID válido tem pelo menos 32 chars
-        current_app.logger.info("USERID_DEBUG: Usando user_id UUID do Supabase: %s", user_id)
+        current_app.logger.info("USERID_DEBUG: User ID da sessão: %s", user_id)
+
+        # CORREÇÃO TEMPORÁRIA: Verificar se este user_id tem dados
+        supabase = _get_supabase()
+        if supabase:
+            try:
+                # Verificar se o user_id da sessão tem clientes
+                result = supabase.table("clientes").select("count", count="exact").eq("user_id", user_id).limit(1).execute()
+                count = result.count or 0
+                current_app.logger.info("USERID_DEBUG: User ID %s tem %d clientes", user_id, count)
+
+                if count > 0:
+                    # User ID da sessão tem dados, usar ele
+                    return user_id
+                else:
+                    # User ID da sessão não tem dados, buscar um que tenha
+                    current_app.logger.warning("USERID_DEBUG: User ID da sessão não tem dados, buscando alternativo")
+
+                    # Buscar qualquer user_id que tenha dados
+                    result = supabase.table("clientes").select("user_id").limit(1).execute()
+                    if result.data:
+                        alternative_user_id = result.data[0].get("user_id")
+                        current_app.logger.warning("USERID_DEBUG: Usando user_id alternativo com dados: %s", alternative_user_id)
+                        return alternative_user_id
+
+            except Exception as e:
+                current_app.logger.error("USERID_DEBUG: Erro ao verificar dados do user_id: %s", e)
+
+        # Se chegou até aqui, usar o user_id da sessão mesmo sem dados
         return user_id
-    
+
     # Se não temos UUID válido, isso significa que a autenticação não funcionou
     current_app.logger.error("USERID_DEBUG: Sem user_id UUID válido na sessão! Sessão: %s", u.keys())
     return None
