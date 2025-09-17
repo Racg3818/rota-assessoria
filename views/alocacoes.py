@@ -10,10 +10,18 @@ def _invalidar_cache_relacionado():
         from views.dashboard import invalidar_cache_dashboard
         invalidar_cache_dashboard()
 
-        # Invalidar caches locais
+        # Invalidar caches locais (incluindo o novo cache de alocações)
         invalidate_user_cache('alocacoes_receitas')
+        invalidate_user_cache('dashboard_data')
+        invalidate_user_cache('receitas_calc')
         invalidate_user_cache('clientes_list')
         invalidate_user_cache('produtos_list')
+
+        # Força limpeza completa do cache do usuário para garantir
+        from cache_manager import invalidate_all_user_cache
+        invalidate_all_user_cache()
+
+        current_app.logger.info("Cache relacionado invalidado com sucesso")
     except Exception as e:
         from flask import current_app
         current_app.logger.error("Erro ao invalidar cache relacionado: %s", e)
@@ -114,7 +122,6 @@ def _uid():
     u = session.get("user") or {}
     return u.get("id") or u.get("supabase_user_id")
 
-@cached_by_user('receitas_calc', timeout=300)  # 5 minutos
 def _calcular_receitas_dashboard(cliente_id_filter=None):
     """
     Calcula receitas e totais com cache para melhorar performance.
@@ -146,6 +153,8 @@ def _calcular_receitas_dashboard(cliente_id_filter=None):
         'total_rec_escritorio': 0.0,
         'total_rec_assessor': 0.0,
         'by_cliente': {},
+        'by_cliente_tradicional': {},
+        'by_cliente_fee_based': {},
         'by_produto_receita': {}
     }
 
@@ -210,9 +219,18 @@ def _calcular_receitas_dashboard(cliente_id_filter=None):
 
             # By cliente (todos os status)
             cid, cnome = cliente.get("id"), cliente.get("nome") or ""
+            cmodelo = (cliente.get("modelo") or "").strip().upper()
             if cid:
                 acc = result['by_cliente'].setdefault(cid, {"nome": cnome, "valor": 0.0})
                 acc["valor"] += valor
+
+                # Segmentar por modelo
+                if cmodelo == "TRADICIONAL":
+                    acc_trad = result['by_cliente_tradicional'].setdefault(cid, {"nome": cnome, "valor": 0.0})
+                    acc_trad["valor"] += valor
+                elif cmodelo in ["FEE_BASED", "FEE_BASED_SEM_RV"]:
+                    acc_fee = result['by_cliente_fee_based'].setdefault(cid, {"nome": cnome, "valor": 0.0})
+                    acc_fee["valor"] += valor
 
             # Adicionar item processado
             item = dict(r)
@@ -233,7 +251,6 @@ def _calcular_receitas_dashboard(cliente_id_filter=None):
     return result
 
 
-@cached_by_user('clientes_list')
 def _carregar_clientes():
     """Carrega lista de clientes do usuário com cache."""
     clientes = []
@@ -252,7 +269,6 @@ def _carregar_clientes():
             clientes = []
     return clientes
 
-@cached_by_user('produtos_list')
 def _carregar_produtos():
     """Carrega lista de produtos do usuário com cache."""
     produtos = []
@@ -361,9 +377,13 @@ def index():
     total_rec_escritorio = cached_data['total_rec_escritorio']
     total_rec_assessor = cached_data['total_rec_assessor']
     by_cliente = cached_data['by_cliente']
+    by_cliente_tradicional = cached_data['by_cliente_tradicional']
+    by_cliente_fee_based = cached_data['by_cliente_fee_based']
     by_produto_receita = cached_data['by_produto_receita']
 
     totais_clientes = sorted(by_cliente.values(), key=lambda x: x["valor"], reverse=True)
+    totais_clientes_tradicional = sorted(by_cliente_tradicional.values(), key=lambda x: x["valor"], reverse=True)
+    totais_clientes_fee_based = sorted(by_cliente_fee_based.values(), key=lambda x: x["valor"], reverse=True)
     receitas_por_produto = sorted(by_produto_receita.values(), key=lambda x: x["receita"], reverse=True)
 
     # Organizar alocações por status para o kanban
@@ -402,6 +422,8 @@ def index():
         totais_por_status=totais_por_status,
         receitas_por_status=receitas_por_status,
         totais_clientes=totais_clientes,
+        totais_clientes_tradicional=totais_clientes_tradicional,
+        totais_clientes_fee_based=totais_clientes_fee_based,
         receitas_por_produto=receitas_por_produto,
         total_rec_escritorio=total_rec_escritorio,
         total_rec_assessor=total_rec_assessor,
@@ -467,15 +489,14 @@ def novo():
                     "user_id": uid,
                 }).execute()
 
-                # Invalidar cache após inserção
-                _invalidar_cache_relacionado()
-
                 flash("Alocação cadastrada com sucesso!", "success")
 
-                # Invalidar cache de receitas
-                invalidate_user_cache('receitas_calc')
+            # Invalidar todos os caches relacionados APÓS qualquer mudança
+            _invalidar_cache_relacionado()
 
-            return redirect(url_for("alocacoes.index"))
+            # Adicionar timestamp para forçar refresh completo
+            import time
+            return redirect(url_for("alocacoes.index", _t=int(time.time())))
         except Exception as e:
             current_app.logger.exception("Falha ao inserir alocação no Supabase")
             flash(f"Erro ao cadastrar alocação: {str(e)}", "error")
@@ -498,8 +519,9 @@ def editar(aloc_id: str):
         cliente_id = (request.form.get("cliente_id") or "").strip() or registro.get("cliente_id")
         produto_id = (request.form.get("produto_id") or "").strip() or registro.get("produto_id")
         valor = _to_float(request.form.get("valor") or registro.get("valor"))
-        percentual = _to_float(request.form.get("percentual") or registro.get("percentual"))
-        efetivada = (request.form.get("efetivada") in ("on", "true", "1"))
+        # Manter valores existentes de percentual e efetivada (campos removidos do form)
+        percentual = registro.get("percentual", 0)
+        efetivada = registro.get("efetivada", False)
 
         supabase = _get_supabase()
         if supabase:
@@ -517,8 +539,14 @@ def editar(aloc_id: str):
                     "efetivada": efetivada
                 }).eq("id", aloc_id).eq("user_id", uid)
                 q.execute()
+
+                # Invalidar cache após atualização
+                _invalidar_cache_relacionado()
+
                 flash("Alocação atualizada.", "success")
-                return redirect(url_for("alocacoes.index"))
+                # Forçar refresh após edição
+                import time
+                return redirect(url_for("alocacoes.index", _t=int(time.time())))
             except Exception:
                 current_app.logger.exception("Falha ao atualizar alocação no Supabase")
                 flash("Falha ao atualizar alocação no Supabase.", "error")
@@ -555,8 +583,8 @@ def efetivar(aloc_id: str):
             q = supabase.table("alocacoes").update({"efetivada": new_val}).eq("id", aloc_id).eq("user_id", uid)
             q.execute()
 
-            # Invalidar cache de receitas
-            invalidate_user_cache('receitas_calc')
+            # Invalidar todos os caches relacionados
+            _invalidar_cache_relacionado()
 
             flash("Alocação atualizada.", "success")
         except Exception:
@@ -611,13 +639,16 @@ def atualizar_status(aloc_id: str):
             
             q = supabase.table("alocacoes").update(updates).eq("id", aloc_id).eq("user_id", uid)
             result = q.execute()
-            
+
+            # Invalidar cache após mudança de status
+            _invalidar_cache_relacionado()
+
             message = ""
             if new_status == "confirmado":
                 message = "Alocação movida para Confirmado e marcada como efetivada!"
             else:
                 message = f"Alocação movida para {new_status.replace('_', ' ').title()}."
-            
+
             if is_ajax:
                 return jsonify({"success": True, "message": message})
             else:
@@ -656,8 +687,14 @@ def excluir(aloc_id: str):
             
             q = supabase.table("alocacoes").delete().eq("id", aloc_id).eq("user_id", uid)
             q.execute()
+
+            # Invalidar cache após exclusão
+            _invalidar_cache_relacionado()
+
             flash("Alocação excluída.", "success")
-            return redirect(url_for("alocacoes.index"))
+            # Forçar refresh completo após exclusão
+            import time
+            return redirect(url_for("alocacoes.index", _t=int(time.time())))
         except Exception:
             current_app.logger.exception("Falha ao excluir alocação no Supabase")
             flash("Falha ao excluir alocação no Supabase.", "error")
@@ -978,12 +1015,13 @@ def receitas_ajax():
             roa_pct = _to_float(produto.get("roa_pct"))
             classe = produto.get("classe", "")
             repasse = _to_float(cliente.get("repasse"))
-            
+            modelo = cliente.get("modelo", "")
+
             if roa_pct <= 0:
                 continue
-                
+
             # Calcular receitas
-            rec_escritorio, rec_assessor = _calc_receitas(valor, roa_pct, classe, repasse)
+            rec_escritorio, rec_assessor, _ = _calc_receitas(valor, roa_pct, repasse, modelo, classe)
             total_rec_escritorio += rec_escritorio
             total_rec_assessor += rec_assessor
             

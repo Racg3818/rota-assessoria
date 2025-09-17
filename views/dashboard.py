@@ -997,9 +997,127 @@ def _historico_receita_passiva_assessor() -> list:
         return []
 
 
+def _penetracao_base_xp_mb_mes(clientes) -> tuple[tuple[float, int, int], tuple[float, int, int]]:
+    """
+    % Penetração de base no mês vigente, separada entre XP e MB.
+
+    Penetração XP: Cliente é considerado XP se tem qualquer alocação que NÃO seja Renda Fixa Digital
+    Penetração MB: Cliente é considerado MB APENAS se tem SOMENTE alocações de Renda Fixa Digital
+
+    Regra importante: cliente alocado deve ser considerado apenas uma vez.
+    Se cliente tem XP E MB, ele é considerado na Penetração XP.
+
+    Returns:
+        tuple: ((xp_pct, xp_numerador, xp_denominador), (mb_pct, mb_numerador, mb_denominador))
+    """
+    supabase = _get_supabase()
+    if not supabase:
+        return (0.0, 0, 0), (0.0, 0, 0)
+
+    def _is_yes(v) -> bool:
+        s = str(v or "").strip().lower()
+        return s in {"sim", "s", "true", "1", "yes", "y"}
+
+    mes_atual = datetime.today().strftime("%Y-%m")
+
+    # ---- Denominador: clientes com NET>0 (já vêm filtrados por user) ----
+    base_ids = {c["id"] for c in clientes if _to_float(c.get("net_total")) > 0}
+    denominador = len(base_ids)
+    if denominador == 0:
+        return (0.0, 0, 0), (0.0, 0, 0)
+
+    # ---- Lê alocações do usuário, com embed do PRODUTO e flag EFETIVADA ----
+    try:
+        q = supabase.table("alocacoes").select(
+            "cliente_id, created_at, efetivada, produto:produto_id ( em_campanha, campanha_mes, classe )"
+        )
+        q = _with_user(q)
+        res = q.execute()
+        rows = list(res.data or [])
+    except Exception as e:
+        current_app.logger.info("dashboard: falha ao buscar alocacoes p/ penetração XP/MB (%s)", e)
+        rows = []
+
+    # ---- Analisar alocações e classificar clientes ----
+    clientes_xp = set()  # Clientes que têm pelo menos uma alocação não-RFD
+    clientes_mb = set()  # Clientes que têm APENAS alocações RFD
+    clientes_com_rfd = set()  # Clientes que têm alocações RFD
+    clientes_com_nao_rfd = set()  # Clientes que têm alocações não-RFD
+
+    debug_count = 0
+
+    for r in rows:
+        debug_count += 1
+        created_ym = (r.get("created_at") or "")[:7]
+
+        # Debug dos primeiros 5 registros
+        if debug_count <= 5:
+            produto = r.get("produto") or {}
+            current_app.logger.info("PENETRACAO_XP_MB_DEBUG %d: created=%s, mes_atual=%s, em_campanha=%s, efetivada=%s, cliente_id=%s, classe=%s",
+                                   debug_count, created_ym, mes_atual,
+                                   produto.get("em_campanha"), r.get("efetivada"), r.get("cliente_id"), produto.get("classe"))
+
+        if created_ym != mes_atual:
+            continue
+
+        produto = r.get("produto") or {}
+        em_campanha = produto.get("em_campanha")
+        if not _is_yes(em_campanha):
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_XP_MB_DEBUG %d: Rejeitado por em_campanha=%s", debug_count, em_campanha)
+            continue
+
+        efetivada = r.get("efetivada")
+        if not _is_yes(efetivada) and not bool(efetivada):
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_XP_MB_DEBUG %d: Rejeitado por efetivada=%s", debug_count, efetivada)
+            continue
+
+        cid = r.get("cliente_id")
+        if cid not in base_ids:
+            continue
+
+        # Verificar se é Renda Fixa Digital
+        classe = (produto.get("classe") or "").strip().upper()
+        is_renda_fixa_digital = classe == "RENDA FIXA DIGITAL"
+
+        if is_renda_fixa_digital:
+            clientes_com_rfd.add(cid)
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_XP_MB_DEBUG %d: Cliente %s marcado como RFD", debug_count, cid)
+        else:
+            clientes_com_nao_rfd.add(cid)
+            if debug_count <= 5:
+                current_app.logger.info("PENETRACAO_XP_MB_DEBUG %d: Cliente %s marcado como NÃO-RFD (classe: %s)", debug_count, cid, classe)
+
+    # ---- Aplicar regras de classificação ----
+    # XP: Qualquer cliente que tenha pelo menos uma alocação não-RFD
+    clientes_xp = clientes_com_nao_rfd.copy()
+
+    # MB: Apenas clientes que têm SOMENTE alocações RFD (e não têm nenhuma não-RFD)
+    clientes_mb = clientes_com_rfd - clientes_com_nao_rfd
+
+    xp_numerador = len(clientes_xp)
+    mb_numerador = len(clientes_mb)
+
+    xp_pct = (xp_numerador / denominador * 100.0) if denominador else 0.0
+    mb_pct = (mb_numerador / denominador * 100.0) if denominador else 0.0
+
+    current_app.logger.info("PENETRACAO_XP_MB: Base clientes (NET>0): %d", denominador)
+    current_app.logger.info("PENETRACAO_XP_MB: Alocações analisadas: %d", len(rows))
+    current_app.logger.info("PENETRACAO_XP_MB: Clientes com RFD: %d", len(clientes_com_rfd))
+    current_app.logger.info("PENETRACAO_XP_MB: Clientes com não-RFD: %d", len(clientes_com_nao_rfd))
+    current_app.logger.info("PENETRACAO_XP_MB: Clientes XP (com pelo menos uma não-RFD): %d", xp_numerador)
+    current_app.logger.info("PENETRACAO_XP_MB: Clientes MB (apenas RFD): %d", mb_numerador)
+    current_app.logger.info("PENETRACAO_XP_MB: XP: %.2f%% (%d/%d)", xp_pct, xp_numerador, denominador)
+    current_app.logger.info("PENETRACAO_XP_MB: MB: %.2f%% (%d/%d)", mb_pct, mb_numerador, denominador)
+
+    return (xp_pct, xp_numerador, denominador), (mb_pct, mb_numerador, denominador)
+
+
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
-    % Penetração de base no mês vigente.
+    % Penetração de base no mês vigente (função mantida para compatibilidade).
     Numerador: nº de clientes (únicos) que têm pelo menos 1 alocação
                EFETIVADA e com produto.em_campanha = 'Sim'/true no mês vigente.
     Denominador: nº de clientes com NET > 0.
@@ -1188,6 +1306,15 @@ def _calcular_metricas_dashboard():
     # ---- % Penetração de base (Campanha=Sim e Efetivada=Sim) ----
     penetracao_pct, penetracao_ativos, penetracao_base = _penetracao_base_mes(clientes)
 
+    # ---- % Penetração separada XP e MB ----
+    (xp_pct, xp_numerador, xp_denominador), (mb_pct, mb_numerador, mb_denominador) = _penetracao_base_xp_mb_mes(clientes)
+
+    # ---- % Penetração total (XP + MB) ----
+    # Numerador: XP + MB (sem duplicação, pois XP já exclui quem está em MB)
+    total_numerador = xp_numerador + mb_numerador
+    total_denominador = xp_denominador  # Mesmo denominador (clientes com NET > 0)
+    total_pct = (total_numerador / total_denominador * 100.0) if total_denominador else 0.0
+
     # Debug: log das métricas calculadas
     current_app.logger.info("DASHBOARD_DEBUG: Clientes carregados: %d", len(clientes))
     current_app.logger.info("DASHBOARD_DEBUG: Receita total mês: %.2f", receita_total_mes)
@@ -1216,6 +1343,17 @@ def _calcular_metricas_dashboard():
         'penetracao_pct': penetracao_pct,
         'penetracao_ativos': penetracao_ativos,
         'penetracao_base': penetracao_base,
+        # Penetração separada XP e MB
+        'xp_pct': xp_pct,
+        'xp_numerador': xp_numerador,
+        'xp_denominador': xp_denominador,
+        'mb_pct': mb_pct,
+        'mb_numerador': mb_numerador,
+        'mb_denominador': mb_denominador,
+        # Penetração total (XP + MB)
+        'total_pct': total_pct,
+        'total_numerador': total_numerador,
+        'total_denominador': total_denominador,
         '_cached_at': time.time()  # Para debug
     }
 
@@ -1291,6 +1429,17 @@ def index():
     penetracao_pct = metricas['penetracao_pct']
     penetracao_ativos = metricas['penetracao_ativos']
     penetracao_base = metricas['penetracao_base']
+    # Penetração separada XP e MB
+    xp_pct = metricas['xp_pct']
+    xp_numerador = metricas['xp_numerador']
+    xp_denominador = metricas['xp_denominador']
+    mb_pct = metricas['mb_pct']
+    mb_numerador = metricas['mb_numerador']
+    mb_denominador = metricas['mb_denominador']
+    # Penetração total
+    total_pct = metricas['total_pct']
+    total_numerador = metricas['total_numerador']
+    total_denominador = metricas['total_denominador']
 
     pontos = []
     counts = {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}
@@ -1347,10 +1496,21 @@ def index():
         quadrant_pct=quadrant_pct,
         quadrant_total=total_clientes,
         clientes_por_quadrante=clientes_por_quadrante,
-        # Card de penetração
+        # Card de penetração (original)
         penetracao_pct=penetracao_pct,
         penetracao_ativos=penetracao_ativos,
         penetracao_base=penetracao_base,
+        # Cards de penetração separados XP e MB
+        xp_pct=xp_pct,
+        xp_numerador=xp_numerador,
+        xp_denominador=xp_denominador,
+        mb_pct=mb_pct,
+        mb_numerador=mb_numerador,
+        mb_denominador=mb_denominador,
+        # Penetração total (XP + MB)
+        total_pct=total_pct,
+        total_numerador=total_numerador,
+        total_denominador=total_denominador,
         # Detalhamento da receita (ativa + recorrente)
         receita_ativa_mes=receita_ativa_mes,
         receita_recorrente_mes=receita_recorrente_mes,

@@ -121,29 +121,71 @@
   </div>
 </div>
 
-<!-- Penetração de base -->
-<div class="grid grid-cols-1 gap-6 mt-6">
-  {% set penetracao_value = (penetracao_pct or 0)|round(1) %}
-  {% if penetracao_value <= 10 %}
-    {% set penetracao_bg = 'bg-red-100 border-red-300' %}
-    {% set penetracao_text = 'text-red-800' %}
-  {% elif penetracao_value >= 11 and penetracao_value <= 19 %}
-    {% set penetracao_bg = 'bg-amber-100 border-amber-300' %}
-    {% set penetracao_text = 'text-amber-800' %}
-  {% else %}
-    {% set penetracao_bg = 'bg-green-100 border-green-300' %}
-    {% set penetracao_text = 'text-green-800' %}
-  {% endif %}
-  
-  <div class="border rounded-xl p-6 {{ penetracao_bg }}">
+<!-- Penetração de base - XP, MB e Total -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+  <!-- Penetração XP -->
+  {% set xp_value = (xp_pct or 0)|round(1) %}
+
+  <div class="border-2 border-yellow-400 rounded-xl p-6 bg-black text-white">
     <div class="text-center">
-      <h3 class="font-medium text-lg mb-2">Penetração de Base</h3>
-      <div class="text-4xl font-bold {{ penetracao_text }} mb-3">{{ penetracao_value }}%</div>
+      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2 text-white">
+        <span class="text-yellow-400 font-bold">XP</span>
+        Penetração de Base
+      </h3>
+      <div class="text-4xl font-bold text-yellow-400 mb-3">{{ xp_value }}%</div>
+      <div class="text-sm text-gray-300">
+        <span class="font-semibold">{{ xp_numerador or 0 }}</span> de <span class="font-semibold">{{ xp_denominador or 0 }}</span> clientes
+      </div>
+      <div class="text-xs text-gray-400 mt-1">
+        com alocação efetivada não-RFD em campanha ({{ mes }})
+      </div>
+    </div>
+  </div>
+
+  <!-- Penetração MB -->
+  {% set mb_value = (mb_pct or 0)|round(1) %}
+
+  <div class="border-2 border-red-500 rounded-xl p-6 bg-black text-white">
+    <div class="text-center">
+      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2 text-white">
+        <span class="text-red-500 font-bold">MB</span>
+        Penetração de Base
+      </h3>
+      <div class="text-4xl font-bold text-red-500 mb-3">{{ mb_value }}%</div>
+      <div class="text-sm text-gray-300">
+        <span class="font-semibold">{{ mb_numerador or 0 }}</span> de <span class="font-semibold">{{ mb_denominador or 0 }}</span> clientes
+      </div>
+      <div class="text-xs text-gray-400 mt-1">
+        com alocação efetivada APENAS em Renda Fixa Digital ({{ mes }})
+      </div>
+    </div>
+  </div>
+
+  <!-- Penetração Total -->
+  {% set total_value = (total_pct or 0)|round(1) %}
+  {% if total_value <= 10 %}
+    {% set total_bg = 'bg-red-100 border-red-300' %}
+    {% set total_text = 'text-red-800' %}
+  {% elif total_value >= 11 and total_value <= 19 %}
+    {% set total_bg = 'bg-amber-100 border-amber-300' %}
+    {% set total_text = 'text-amber-800' %}
+  {% else %}
+    {% set total_bg = 'bg-green-100 border-green-300' %}
+    {% set total_text = 'text-green-800' %}
+  {% endif %}
+
+  <div class="border rounded-xl p-6 {{ total_bg }}">
+    <div class="text-center">
+      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2">
+        <span class="text-gray-700 font-bold">TOTAL</span>
+        Penetração de Base
+      </h3>
+      <div class="text-4xl font-bold {{ total_text }} mb-3">{{ total_value }}%</div>
       <div class="text-sm text-gray-600">
-        <span class="font-semibold">{{ penetracao_ativos or 0 }}</span> de <span class="font-semibold">{{ penetracao_base or 0 }}</span> clientes
+        <span class="font-semibold">{{ total_numerador or 0 }}</span> de <span class="font-semibold">{{ total_denominador or 0 }}</span> clientes
       </div>
       <div class="text-xs text-gray-500 mt-1">
-        com alocação efetivada em produto de campanha ({{ mes }})
+        com alocação efetivada em campanha (XP + MB) ({{ mes }})
       </div>
     </div>
   </div>

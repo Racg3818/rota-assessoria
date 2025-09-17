@@ -38,34 +38,15 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
       <!-- Valor -->
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-2">Valor (R$)</label>
-        <input type="number" name="valor" step="0.01" 
+        <input type="number" name="valor" step="0.01"
                value="{{ alocacao.valor or '' }}"
-               class="w-full border rounded px-3 py-2" 
+               class="w-full border rounded px-3 py-2"
                placeholder="0.00">
       </div>
-
-      <!-- Percentual -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Percentual (%)</label>
-        <input type="number" name="percentual" step="0.01" 
-               value="{{ alocacao.percentual or '' }}"
-               class="w-full border rounded px-3 py-2" 
-               placeholder="0.00">
-      </div>
-    </div>
-
-    <!-- Efetivada -->
-    <div class="mb-6">
-      <label class="inline-flex items-center">
-        <input type="checkbox" name="efetivada" 
-               {% if alocacao.efetivada %}checked{% endif %}
-               class="rounded border-gray-300">
-        <span class="ml-2 text-sm text-gray-700">Alocação confirmada/efetivada</span>
-      </label>
     </div>
 
     <div class="flex gap-2">
