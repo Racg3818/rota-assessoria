@@ -157,13 +157,19 @@ def login():
                             current_app.logger.info("AUTH: Usando user_id conhecido para Renan: %s", user_id)
                         else:
                             import hashlib
-                            user_id = hashlib.sha256(email.encode()).hexdigest()
-                            current_app.logger.warning("AUTH: Criando novo user_id SHA256 para %s: %s", email, user_id[:8])
+                            import uuid
+                            # Gerar UUID determinístico baseado no email
+                            email_hash = hashlib.sha256(email.encode()).digest()
+                            user_id = str(uuid.UUID(bytes=email_hash[:16]))
+                            current_app.logger.warning("AUTH: Criando novo user_id UUID baseado em email para %s: %s", email, user_id)
                 except Exception as e:
                     current_app.logger.error("AUTH: Erro ao buscar user_id existente: %s", e)
                     import hashlib
-                    user_id = hashlib.sha256(email.encode()).hexdigest()
-                    current_app.logger.warning("AUTH: Fallback SHA256 user_id=%s para %s", user_id[:8], email)
+                    import uuid
+                    # Gerar UUID determinístico baseado no email
+                    email_hash = hashlib.sha256(email.encode()).digest()
+                    user_id = str(uuid.UUID(bytes=email_hash[:16]))
+                    current_app.logger.warning("AUTH: Fallback UUID user_id=%s para %s", user_id, email)
                 
             # DEBUG: Log detalhado da sessão sendo criada
             session_data = {
@@ -207,10 +213,13 @@ def login():
             fallback_id = 'f5dd2207-5769-466b-afdd-cc78e6e635f7'
             current_app.logger.info("AUTH: Fallback usando user_id conhecido para Roberta: %s", fallback_id)
         else:
-            # Gera um ID único baseado no email para novos usuários
+            # Gera um UUID único baseado no email para novos usuários
             import hashlib
-            fallback_id = hashlib.sha256(email.encode()).hexdigest()
-            current_app.logger.info("AUTH: Fallback gerando novo user_id SHA256 para %s: %s", email, fallback_id[:8])
+            import uuid
+            # Gerar UUID determinístico baseado no email
+            email_hash = hashlib.sha256(email.encode()).digest()
+            fallback_id = str(uuid.UUID(bytes=email_hash[:16]))
+            current_app.logger.info("AUTH: Fallback gerando novo user_id UUID para %s: %s", email, fallback_id)
         
         session['user'] = {
             'id': fallback_id,
