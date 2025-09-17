@@ -141,35 +141,90 @@ def login():
 
             # Garante que sempre temos um user_id válido
             if not user_id:
-                # CORREÇÃO: Primeiro tenta encontrar usuário existente no banco por email
+                # SISTEMA AUTOMÁTICO DE MAPEAMENTO ESCALÁVEL
                 try:
                     from supabase_client import supabase_admin
-                    # Buscar user_id existente na tabela clientes por email (user_key em user_prefs)
+
+                    # 1. Buscar user_id existente em user_prefs (mapeamento direto)
                     prefs_result = supabase_admin.table('user_prefs').select('user_id').eq('user_key', email).limit(1).execute()
                     if prefs_result.data:
                         user_id = prefs_result.data[0]['user_id']
                         current_app.logger.info("AUTH: User ID encontrado em user_prefs: %s", user_id)
                     else:
-                        # Fallback: buscar na tabela clientes (se tiver um campo email)
-                        # Como fallback final, usar o user_id conhecido do Renan
-                        if email == 'renan.godinho@svninvest.com.br':
-                            user_id = '49bfe132-04dc-4552-9088-99acea0f9310'
-                            current_app.logger.info("AUTH: Usando user_id conhecido para Renan: %s", user_id)
-                        else:
-                            import hashlib
-                            import uuid
-                            # Gerar UUID determinístico baseado no email
-                            email_hash = hashlib.sha256(email.encode()).digest()
-                            user_id = str(uuid.UUID(bytes=email_hash[:16]))
-                            current_app.logger.warning("AUTH: Criando novo user_id UUID baseado em email para %s: %s", email, user_id)
+                        # 2. Buscar por código XP em clientes existentes
+                        current_app.logger.info("AUTH: Tentando mapear %s por código XP: %s", email, codigo_xp)
+
+                        if codigo_xp:
+                            clientes_result = supabase_admin.table('clientes').select('user_id').eq('codigo_xp', codigo_xp).limit(1).execute()
+                            if clientes_result.data:
+                                existing_user_id = clientes_result.data[0]['user_id']
+                                current_app.logger.info("AUTH: Encontrado user_id por código XP %s: %s", codigo_xp, existing_user_id)
+
+                                # 3. Criar mapeamento automático email -> user_id
+                                try:
+                                    # Inserir no formato correto para o schema
+                                    insert_result = supabase_admin.table('user_prefs').insert({
+                                        'user_key': email,
+                                        'key': 'email_mapping',
+                                        'value': email  # Supabase converte automaticamente para JSONB
+                                    }).execute()
+
+                                    # Atualizar user_id se trigger não definir automaticamente
+                                    if insert_result.data:
+                                        record_id = insert_result.data[0]['id']
+                                        supabase_admin.table('user_prefs').update({
+                                            'user_id': existing_user_id
+                                        }).eq('id', record_id).execute()
+
+                                    current_app.logger.info("AUTH: Mapeamento automático criado: %s -> %s", email, existing_user_id)
+                                except Exception as mapping_error:
+                                    current_app.logger.warning("AUTH: Erro ao criar mapeamento (pode já existir): %s", mapping_error)
+
+                                user_id = existing_user_id
+                            else:
+                                current_app.logger.info("AUTH: Código XP %s não encontrado em clientes existentes", codigo_xp)
+
+                        # 4. Fallback para usuários conhecidos hardcoded
+                        if not user_id:
+                            if email == 'renan.godinho@svninvest.com.br':
+                                user_id = '49bfe132-04dc-4552-9088-99acea0f9310'
+                                current_app.logger.info("AUTH: Usando user_id conhecido para Renan: %s", user_id)
+                            else:
+                                # 5. Criar novo user_id apenas se necessário
+                                import hashlib
+                                import uuid
+                                email_hash = hashlib.sha256(email.encode()).digest()
+                                user_id = str(uuid.UUID(bytes=email_hash[:16]))
+                                current_app.logger.warning("AUTH: Criando NOVO user_id para %s: %s", email, user_id)
+
+                                # Criar mapeamento para o novo usuário
+                                try:
+                                    # Inserir no formato correto para o schema
+                                    insert_result = supabase_admin.table('user_prefs').insert({
+                                        'user_key': email,
+                                        'key': 'email_mapping',
+                                        'value': email  # Supabase converte automaticamente para JSONB
+                                    }).execute()
+
+                                    # Atualizar user_id se trigger não definir automaticamente
+                                    if insert_result.data:
+                                        record_id = insert_result.data[0]['id']
+                                        supabase_admin.table('user_prefs').update({
+                                            'user_id': user_id
+                                        }).eq('id', record_id).execute()
+
+                                    current_app.logger.info("AUTH: Mapeamento criado para novo usuário: %s -> %s", email, user_id)
+                                except Exception as new_mapping_error:
+                                    current_app.logger.error("AUTH: Erro ao criar mapeamento para novo usuário: %s", new_mapping_error)
+
                 except Exception as e:
-                    current_app.logger.error("AUTH: Erro ao buscar user_id existente: %s", e)
+                    current_app.logger.error("AUTH: Erro no sistema de mapeamento automático: %s", e)
+                    # Fallback final
                     import hashlib
                     import uuid
-                    # Gerar UUID determinístico baseado no email
                     email_hash = hashlib.sha256(email.encode()).digest()
                     user_id = str(uuid.UUID(bytes=email_hash[:16]))
-                    current_app.logger.warning("AUTH: Fallback UUID user_id=%s para %s", user_id, email)
+                    current_app.logger.warning("AUTH: Fallback final UUID user_id=%s para %s", user_id, email)
                 
             # DEBUG: Log detalhado da sessão sendo criada
             session_data = {
