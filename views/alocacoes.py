@@ -411,8 +411,19 @@ def index():
         except Exception:
             pass
     
-    # SIMULADOR DE META - Calcular alocações necessárias para atingir meta
-    simulador_meta = _calcular_simulador_meta(_uid(), total_rec_escritorio, produtos_data)
+    # BÔNUS/MISSÕES - Carregar bônus do mês atual
+    bonus_list = _carregar_bonus_mes()
+    total_bonus = sum(
+        _calcular_valor_liquido_bonus(
+            b.get("valor_bonus", 0),
+            b.get("liquido_assessor", True)
+        )
+        for b in bonus_list if b.get("ativo", True)
+    )
+
+    # SIMULADOR DE META - Calcular alocações necessárias para atingir meta (incluindo bônus)
+    receita_atual_com_bonus = total_rec_escritorio + total_bonus
+    simulador_meta = _calcular_simulador_meta(_uid(), receita_atual_com_bonus, produtos_data)
 
     return render_template(
         "alocacoes/index.html",
@@ -429,6 +440,8 @@ def index():
         total_rec_assessor=total_rec_assessor,
         cliente_id_filter=cliente_id_filter,
         simulador_meta=simulador_meta,
+        bonus_list=bonus_list,
+        total_bonus=total_bonus,
     )
 
 
@@ -1061,6 +1074,31 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
 
     supabase = _get_supabase()
     mes_atual = datetime.now().strftime("%Y-%m")
+
+    # Carregar bônus ativos para exibição separada
+    bonus_ativo_mes = 0.0
+    try:
+        if supabase and uid:
+            # Tentar com colunas novas primeiro
+            try:
+                resp_bonus = supabase.table("bonus_missoes").select("valor_bonus, liquido_assessor").eq("user_id", uid).eq("mes", mes_atual).eq("ativo", True).execute()
+                bonus_list = resp_bonus.data or []
+                bonus_ativo_mes = sum(
+                    _calcular_valor_liquido_bonus(
+                        b.get("valor_bonus", 0),
+                        b.get("liquido_assessor", True)
+                    )
+                    for b in bonus_list
+                )
+            except Exception:
+                # Fallback para apenas valor_bonus
+                resp_bonus = supabase.table("bonus_missoes").select("valor_bonus").eq("user_id", uid).eq("mes", mes_atual).eq("ativo", True).execute()
+                bonus_list = resp_bonus.data or []
+                bonus_ativo_mes = sum(_to_float(b.get("valor_bonus", 0)) for b in bonus_list)
+                current_app.logger.warning("SIMULADOR_META: Usando fallback (campos novos não disponíveis)")
+    except Exception as e:
+        current_app.logger.warning("SIMULADOR_META: Erro ao carregar bônus: %s", e)
+        bonus_ativo_mes = 0.0
     
     # Buscar metas por classe do mês atual
     metas_por_classe = {}
@@ -1084,6 +1122,7 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
             "meta_mes": 0.0,
             "receita_atual": receita_atual,
             "receita_passiva": 0.0,
+            "bonus_ativo": bonus_ativo_mes,
             "receita_total_esperada": receita_atual,
             "falta_receita": 0.0,
             "produtos_sugestao": [],
@@ -1221,12 +1260,256 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
         "meta_mes": total_metas,
         "receita_atual": receita_atual,
         "receita_passiva": receita_passiva_mes,
+        "bonus_ativo": bonus_ativo_mes,
         "receita_total_esperada": receita_total_esperada,
         "falta_receita": falta_receita,
         "produtos_sugestao": produtos_sugestao,
         "mes_atual": mes_atual,
         "metas_por_classe": metas_por_classe
     }
+
+
+# ---------------- BÔNUS/MISSÕES ----------------
+def _calcular_valor_liquido_bonus(valor_bonus, liquido_assessor):
+    """
+    Calcula o valor líquido do bônus para o assessor.
+    Se liquido_assessor = True: retorna o valor como está
+    Se liquido_assessor = False: aplica 80% (desconta 20% de IR)
+    """
+    if liquido_assessor:
+        return _to_float(valor_bonus)
+    else:
+        return _to_float(valor_bonus) * 0.80
+
+def _carregar_bonus_mes():
+    """Carrega bônus/missões do usuário para o mês atual"""
+    from datetime import datetime
+    uid = _uid()
+    supabase = _get_supabase()
+    mes_atual = datetime.now().strftime("%Y-%m")
+    bonus_list = []
+
+    if supabase and uid:
+        try:
+            resp = supabase.table("bonus_missoes").select("*").eq("user_id", uid).eq("mes", mes_atual).order("created_at", desc=True).execute()
+            bonus_list = resp.data or []
+        except Exception as e:
+            current_app.logger.warning("Tabela bonus_missoes não encontrada ou erro ao carregar: %s", e)
+            # Retorna lista vazia se tabela não existir
+            bonus_list = []
+
+    return bonus_list
+
+@alocacoes_bp.route("/bonus", methods=["GET", "POST"])
+@login_required
+def bonus():
+    """Gerenciar bônus/missões do assessor"""
+    if request.method == "POST":
+        nome_missao = (request.form.get("nome_missao") or "").strip()
+        valor_bonus = _to_float(request.form.get("valor_bonus"))
+        origem = (request.form.get("origem") or "XP").strip()
+        liquido_assessor = request.form.get("liquido_assessor") == "on"
+
+        if not nome_missao:
+            flash("Nome da missão é obrigatório.", "error")
+            return redirect(url_for("alocacoes.bonus"))
+
+        if origem not in ["XP", "SVN"]:
+            origem = "XP"
+
+        supabase = _get_supabase()
+        uid = _uid()
+
+        if not supabase or not uid:
+            flash("Sistema indisponível ou sessão inválida.", "error")
+            return redirect(url_for("alocacoes.bonus"))
+
+        try:
+            from datetime import datetime
+            mes_atual = datetime.now().strftime("%Y-%m")
+
+            # Dados básicos obrigatórios
+            insert_data = {
+                "user_id": uid,
+                "mes": mes_atual,
+                "nome_missao": nome_missao,
+                "valor_bonus": valor_bonus,
+                "ativo": True
+            }
+
+            # Tentar adicionar campos novos se a tabela suportar
+            try:
+                insert_data["origem"] = origem
+                insert_data["liquido_assessor"] = liquido_assessor
+            except:
+                pass  # Campos novos podem não existir ainda
+
+            supabase.table("bonus_missoes").insert(insert_data).execute()
+
+            flash(f"Missão '{nome_missao}' cadastrada com sucesso!", "success")
+            return redirect(url_for("alocacoes.bonus"))
+
+        except Exception as e:
+            current_app.logger.warning("Erro ao cadastrar bônus/missão: %s", e)
+            # Tentar com campos básicos apenas
+            try:
+                supabase.table("bonus_missoes").insert({
+                    "user_id": uid,
+                    "mes": mes_atual,
+                    "nome_missao": nome_missao,
+                    "valor_bonus": valor_bonus,
+                    "ativo": True
+                }).execute()
+                flash(f"Missão '{nome_missao}' cadastrada (campos básicos - execute migração SQL para funcionalidade completa).", "warning")
+                return redirect(url_for("alocacoes.bonus"))
+            except Exception as e2:
+                current_app.logger.warning("Erro ao cadastrar bônus/missão (fallback): %s", e2)
+                flash("Funcionalidade de bônus requer configuração no banco. Entre em contato com o administrador.", "error")
+                return redirect(url_for("alocacoes.bonus"))
+
+    # GET - listar bônus/missões
+    bonus_list = _carregar_bonus_mes()
+    total_bonus = sum(
+        _calcular_valor_liquido_bonus(
+            b.get("valor_bonus", 0),
+            b.get("liquido_assessor", True)
+        )
+        for b in bonus_list if b.get("ativo", True)
+    )
+
+    return render_template(
+        "alocacoes/bonus.html",
+        bonus_list=bonus_list,
+        total_bonus=total_bonus
+    )
+
+@alocacoes_bp.route("/bonus/<string:bonus_id>/excluir", methods=["POST"])
+@login_required
+def excluir_bonus(bonus_id: str):
+    """Excluir bônus/missão"""
+    supabase = _get_supabase()
+    uid = _uid()
+
+    if not supabase or not uid:
+        flash("Sistema indisponível ou sessão inválida.", "error")
+        return redirect(url_for("alocacoes.bonus"))
+
+    try:
+        supabase.table("bonus_missoes").delete().eq("id", bonus_id).eq("user_id", uid).execute()
+        flash("Missão excluída com sucesso!", "success")
+    except Exception as e:
+        current_app.logger.warning("Erro ao excluir bônus/missão (tabela pode não existir): %s", e)
+        flash("Funcionalidade de bônus requer configuração no banco.", "error")
+
+    return redirect(url_for("alocacoes.bonus"))
+
+@alocacoes_bp.route("/bonus/<string:bonus_id>/toggle", methods=["POST"])
+@login_required
+def toggle_bonus(bonus_id: str):
+    """Ativar/desativar bônus/missão"""
+    supabase = _get_supabase()
+    uid = _uid()
+
+    if not supabase or not uid:
+        flash("Sistema indisponível ou sessão inválida.", "error")
+        return redirect(url_for("alocacoes.bonus"))
+
+    try:
+        # Buscar status atual
+        resp = supabase.table("bonus_missoes").select("ativo").eq("id", bonus_id).eq("user_id", uid).execute()
+        if resp.data:
+            ativo_atual = resp.data[0].get("ativo", True)
+            novo_status = not ativo_atual
+
+            supabase.table("bonus_missoes").update({"ativo": novo_status}).eq("id", bonus_id).eq("user_id", uid).execute()
+
+            status_texto = "ativada" if novo_status else "desativada"
+            flash(f"Missão {status_texto} com sucesso!", "success")
+        else:
+            flash("Missão não encontrada.", "error")
+
+    except Exception as e:
+        current_app.logger.warning("Erro ao alterar status do bônus/missão (tabela pode não existir): %s", e)
+        flash("Funcionalidade de bônus requer configuração no banco.", "error")
+
+    return redirect(url_for("alocacoes.bonus"))
+
+@alocacoes_bp.route("/bonus/<string:bonus_id>/editar", methods=["GET", "POST"])
+@login_required
+def editar_bonus(bonus_id: str):
+    """Editar bônus/missão"""
+    supabase = _get_supabase()
+    uid = _uid()
+
+    if not supabase or not uid:
+        flash("Sistema indisponível ou sessão inválida.", "error")
+        return redirect(url_for("alocacoes.bonus"))
+
+    # Buscar o bônus atual
+    try:
+        resp = supabase.table("bonus_missoes").select("*").eq("id", bonus_id).eq("user_id", uid).execute()
+        if not resp.data:
+            flash("Missão não encontrada.", "error")
+            return redirect(url_for("alocacoes.bonus"))
+
+        bonus = resp.data[0]
+    except Exception as e:
+        current_app.logger.warning("Erro ao buscar bônus para edição: %s", e)
+        flash("Erro ao carregar missão.", "error")
+        return redirect(url_for("alocacoes.bonus"))
+
+    if request.method == "POST":
+        nome_missao = (request.form.get("nome_missao") or "").strip()
+        valor_bonus = _to_float(request.form.get("valor_bonus"))
+        origem = (request.form.get("origem") or "XP").strip()
+        liquido_assessor = request.form.get("liquido_assessor") == "on"
+
+        if not nome_missao:
+            flash("Nome da missão é obrigatório.", "error")
+            return redirect(url_for("alocacoes.editar_bonus", bonus_id=bonus_id))
+
+        if origem not in ["XP", "SVN"]:
+            origem = "XP"
+
+        try:
+            # Tentar atualizar com todos os campos
+            update_data = {
+                "nome_missao": nome_missao,
+                "valor_bonus": valor_bonus
+            }
+
+            # Adicionar campos novos apenas se a tabela suportar
+            try:
+                update_data["origem"] = origem
+                update_data["liquido_assessor"] = liquido_assessor
+            except:
+                pass  # Campos novos podem não existir ainda
+
+            supabase.table("bonus_missoes").update(update_data).eq("id", bonus_id).eq("user_id", uid).execute()
+
+            flash("Missão atualizada com sucesso!", "success")
+            return redirect(url_for("alocacoes.bonus"))
+
+        except Exception as e:
+            current_app.logger.warning("Erro ao atualizar bônus/missão: %s", e)
+            # Tentar apenas com campos básicos como fallback
+            try:
+                supabase.table("bonus_missoes").update({
+                    "nome_missao": nome_missao,
+                    "valor_bonus": valor_bonus
+                }).eq("id", bonus_id).eq("user_id", uid).execute()
+                flash("Missão atualizada (apenas campos básicos - execute migração SQL para campos completos).", "warning")
+                return redirect(url_for("alocacoes.bonus"))
+            except Exception as e2:
+                current_app.logger.warning("Erro ao atualizar bônus/missão (fallback): %s", e2)
+                flash("Erro ao atualizar missão.", "error")
+                return redirect(url_for("alocacoes.editar_bonus", bonus_id=bonus_id))
+
+    # GET - renderizar formulário de edição
+    return render_template(
+        "alocacoes/editar_bonus.html",
+        bonus=bonus
+    )
 
 
 # ---------------- METAS ESCRITÓRIO ----------------

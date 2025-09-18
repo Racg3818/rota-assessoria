@@ -91,6 +91,53 @@ def _to_float(x) -> float:
             return 0.0
 
 
+def _calcular_valor_liquido_bonus(valor_bonus, liquido_assessor):
+    """
+    Calcula o valor líquido do bônus para o assessor.
+    Se liquido_assessor = True: retorna o valor como está
+    Se liquido_assessor = False: aplica 80% (desconta 20% de IR)
+    """
+    if liquido_assessor:
+        return _to_float(valor_bonus)
+    else:
+        return _to_float(valor_bonus) * 0.80
+
+def _carregar_bonus_ativo_mes():
+    """Carrega total de bônus ativos do usuário para o mês atual"""
+    from datetime import datetime
+    uid = _current_user_id()
+    supabase = _get_supabase()
+    mes_atual = datetime.now().strftime("%Y-%m")
+    total_bonus = 0.0
+
+    if supabase and uid:
+        try:
+            # Tentar com colunas novas primeiro
+            try:
+                resp = supabase.table("bonus_missoes").select("valor_bonus, liquido_assessor").eq("user_id", uid).eq("mes", mes_atual).eq("ativo", True).execute()
+                bonus_list = resp.data or []
+                total_bonus = sum(
+                    _calcular_valor_liquido_bonus(
+                        b.get("valor_bonus", 0),
+                        b.get("liquido_assessor", True)
+                    )
+                    for b in bonus_list
+                )
+            except Exception:
+                # Fallback para apenas valor_bonus (sem cálculo de IR)
+                resp = supabase.table("bonus_missoes").select("valor_bonus").eq("user_id", uid).eq("mes", mes_atual).eq("ativo", True).execute()
+                bonus_list = resp.data or []
+                total_bonus = sum(_to_float(b.get("valor_bonus", 0)) for b in bonus_list)
+                current_app.logger.warning("BONUS_DASHBOARD: Usando fallback (campos novos não disponíveis)")
+
+            current_app.logger.info("BONUS_DASHBOARD: Total bônus ativo do mês: R$ %.2f", total_bonus)
+        except Exception as e:
+            current_app.logger.warning("BONUS_DASHBOARD: Erro ao carregar bônus (tabela pode não existir): %s", e)
+            total_bonus = 0.0
+
+    return total_bonus
+
+
 def _median(vals):
     arr = sorted([_to_float(v) for v in vals if v is not None])
     n = len(arr)
@@ -709,16 +756,17 @@ def _receita_escritorio_recorrente(clientes) -> float:
 def _receita_escritorio_total_mes(clientes):
     """
     Calcula a receita total do escritório no mês atual:
-    Receita Ativa (alocações EFETIVADAS) + Receita Recorrente (calculada a partir da receita assessor)
+    Receita Ativa (alocações EFETIVADAS) + Receita Recorrente (calculada a partir da receita assessor) + Bônus
     """
     receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
     receita_recorrente = _receita_escritorio_recorrente(clientes)
+    bonus_ativo = _carregar_bonus_ativo_mes()
 
-    total = receita_ativa + receita_recorrente
+    total = receita_ativa + receita_recorrente + bonus_ativo
 
-    current_app.logger.info("RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f = Total=%.2f",
-                           receita_ativa, receita_recorrente, total)
-    
+    current_app.logger.info("RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f + Bônus=%.2f = Total=%.2f",
+                           receita_ativa, receita_recorrente, bonus_ativo, total)
+
     return total
 
 
@@ -798,11 +846,17 @@ def _receita_assessor_mes(receita_escritorio: float, clientes) -> float:
     media_ponderada_repasse = total_net_ponderado / total_net
 
     # Fórmula final
-    receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse
+    receita_assessor_base = receita_escritorio * 0.80 * media_ponderada_repasse
 
-    current_app.logger.info("RECEITA_ASSESSOR: Média ponderada: %.4f (%.2f%%) | Resultado: %.2f × 80%% × %.4f = %.2f",
+    # Adicionar bônus ativos do mês
+    bonus_ativo = _carregar_bonus_ativo_mes()
+    receita_assessor = receita_assessor_base + bonus_ativo
+
+    current_app.logger.info("RECEITA_ASSESSOR: Média ponderada: %.4f (%.2f%%) | Base: %.2f × 80%% × %.4f = %.2f",
                            media_ponderada_repasse, media_ponderada_repasse * 100,
-                           receita_escritorio, media_ponderada_repasse, receita_assessor)
+                           receita_escritorio, media_ponderada_repasse, receita_assessor_base)
+    current_app.logger.info("RECEITA_ASSESSOR: Bônus ativo: R$ %.2f | Receita total: R$ %.2f",
+                           bonus_ativo, receita_assessor)
 
     return receita_assessor
 
@@ -1284,12 +1338,13 @@ def _calcular_metricas_dashboard():
         current_app.logger.warning("DASHBOARD_METRICS: Nenhum cliente retornado por _fetch_clientes_otimizado. Usando _fetch_clientes como fallback.")
         clientes = _fetch_clientes()
 
-    # Calcular receita total do escritório (ativa + recorrente)
-    receita_total_mes = float(_receita_escritorio_total_mes(clientes) or 0.0)
+    # Calcular receita total do escritório (ativa + recorrente + bônus)
     receita_ativa_mes = float(_receita_escritorio_mes_atual_via_alocacoes() or 0.0)
-    receita_recorrente_mes = receita_total_mes - receita_ativa_mes
+    receita_recorrente_mes_pura = float(_receita_escritorio_recorrente(clientes) or 0.0)
+    bonus_ativo_mes = _carregar_bonus_ativo_mes()
+    receita_total_mes = receita_ativa_mes + receita_recorrente_mes_pura + bonus_ativo_mes
 
-    # Calcular receita do assessor usando a fórmula original
+    # Calcular receita do assessor usando a fórmula original (já inclui bônus)
     receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
 
     # Calcular ROA
@@ -1332,7 +1387,8 @@ def _calcular_metricas_dashboard():
         'clientes': clientes,
         'receita_total_mes': receita_total_mes,
         'receita_ativa_mes': receita_ativa_mes,
-        'receita_recorrente_mes': receita_recorrente_mes,
+        'receita_recorrente_mes': receita_recorrente_mes_pura,
+        'bonus_ativo_mes': bonus_ativo_mes,
         'receita_assessor_mes': receita_assessor_mes,
         'roa_percentual': roa_percentual,
         'historico_receita_passiva': historico_receita_passiva,

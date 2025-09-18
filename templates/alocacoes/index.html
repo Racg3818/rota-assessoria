@@ -7,6 +7,7 @@
   <h2 class="font-medium">Alocações</h2>
   <div class="flex gap-2">
     <button onclick="toggleView()" id="toggleViewBtn" class="px-3 py-2 rounded border text-sm">Ver Tabela</button>
+    <a href="{{ url_for('alocacoes.bonus') }}" class="px-3 py-2 rounded border text-sm">Bônus/Missões</a>
     <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="px-3 py-2 rounded border text-sm">Metas Escritório</a>
     <a href="{{ url_for('alocacoes.produtos') }}" class="px-3 py-2 rounded border text-sm">Produtos</a>
     <a href="{{ url_for('alocacoes.novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Nova alocação</a>
@@ -14,7 +15,7 @@
 </div>
 
 <!-- KPIs de Receitas (apenas confirmados) -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
   <div class="border rounded-xl p-4 bg-white">
     <div class="text-sm text-gray-500">Receita Escritório (confirmados)</div>
     <div class="text-2xl font-semibold text-green-700" data-receita="escritorio">{{ total_rec_escritorio|brl }}</div>
@@ -23,6 +24,12 @@
   <div class="border rounded-xl p-4 bg-white">
     <div class="text-sm text-gray-500">Receita Assessor (confirmados)</div>
     <div class="text-2xl font-semibold text-green-700" data-receita="assessor">{{ total_rec_assessor|brl }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-500">Bônus Ativos</div>
+    <div class="text-2xl font-semibold text-blue-700">{{ total_bonus|brl }}</div>
+    <div class="text-xs text-gray-400 mt-1">{{ bonus_list|selectattr('ativo')|list|length }} missão(ões)</div>
   </div>
 
   <div class="border rounded-xl p-4 bg-white">
@@ -41,18 +48,22 @@
     <h3 class="text-lg font-semibold text-gray-800">Simulador de Meta - {{ simulador_meta.mes_atual }}</h3>
   </div>
   
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
     <div class="bg-white border rounded-lg p-4 text-center">
       <div class="text-sm text-gray-600">Meta do Mês</div>
       <div class="text-xl font-bold text-blue-700">{{ simulador_meta.meta_mes|brl }}</div>
     </div>
     <div class="bg-white border rounded-lg p-4 text-center">
       <div class="text-sm text-gray-600">Receita Ativa</div>
-      <div class="text-xl font-bold text-green-700" id="simulador-receita-ativa">{{ simulador_meta.receita_atual|brl }}</div>
+      <div class="text-xl font-bold text-green-700" id="simulador-receita-ativa">{{ (simulador_meta.receita_atual - simulador_meta.bonus_ativo)|brl }}</div>
     </div>
     <div class="bg-white border rounded-lg p-4 text-center">
       <div class="text-sm text-gray-600">Receita Passiva</div>
       <div class="text-xl font-bold text-purple-700" id="simulador-receita-passiva">{{ simulador_meta.receita_passiva|brl }}</div>
+    </div>
+    <div class="bg-white border rounded-lg p-4 text-center">
+      <div class="text-sm text-gray-600">Bônus Ativos</div>
+      <div class="text-xl font-bold text-orange-700" id="simulador-bonus-ativo">{{ simulador_meta.bonus_ativo|brl }}</div>
     </div>
     <div class="bg-white border rounded-lg p-4 text-center">
       <div class="text-sm text-gray-600">Falta Atingir</div>
@@ -60,60 +71,139 @@
     </div>
   </div>
 
-  <!-- Tabela de Produtos -->
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="text-left px-4 py-3 font-medium text-gray-700">Produto</th>
-          <th class="text-left px-4 py-3 font-medium text-gray-700">Classe</th>
-          <th class="text-center px-4 py-3 font-medium text-gray-700">ROA</th>
-          <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Necessário</th>
-          <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Restante</th>
-          <th class="text-center px-4 py-3 font-medium text-gray-700">Status Meta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for produto in simulador_meta.produtos_sugestao %}
-        <tr class="border-t hover:bg-gray-50" data-produto-id="{{ produto.id }}">
-          <td class="px-4 py-3">
-            <div class="font-medium text-gray-900">{{ produto.nome }}</div>
-            {% if produto.em_campanha %}
-            <div class="text-xs text-orange-600 flex items-center gap-1 mt-1">
-              🎪 <span>Em Campanha</span>
-            </div>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 text-gray-600">{{ produto.classe }}</td>
-          <td class="px-4 py-3 text-center">
-            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-              {{ produto.roa_pct }}%
-            </span>
-          </td>
-          <td class="px-4 py-3 text-right font-medium text-blue-700">
-            {{ produto.valor_necessario|brl }}
-          </td>
-          <td class="px-4 py-3 text-right font-medium text-red-600 simulador-valor-restante"
-              data-produto-id="{{ produto.id }}"
-              data-valor-necessario="{{ produto.valor_necessario }}"
-              data-roa-pct="{{ produto.roa_pct }}">
-            {{ produto.valor_restante|brl }}
-          </td>
-          <td class="px-4 py-3 text-center">
-            <span class="simulador-status-meta px-2 py-1 rounded text-xs font-medium"
-                  data-produto-id="{{ produto.id }}">
-              {% if produto.valor_restante <= 0 %}
-                <span class="bg-green-100 text-green-800">✅ Batida</span>
-              {% else %}
-                <span class="bg-red-100 text-red-800">❌ Pendente</span>
-              {% endif %}
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- Produtos Segmentados por Campanha -->
+
+  <!-- Produtos EM CAMPANHA -->
+  {% set produtos_campanha = simulador_meta.produtos_sugestao | selectattr('em_campanha') | list %}
+  {% if produtos_campanha %}
+  <div class="mb-6">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-lg">🎪</span>
+      <h4 class="font-semibold text-gray-800">Produtos em Campanha</h4>
+      <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+        {{ produtos_campanha|length }} produto{{ 's' if produtos_campanha|length != 1 else '' }}
+      </span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border border-orange-200 rounded-lg">
+        <thead class="bg-orange-50">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-700">Produto</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-700">Classe</th>
+            <th class="text-center px-4 py-3 font-medium text-gray-700">ROA</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Necessário</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Restante</th>
+            <th class="text-center px-4 py-3 font-medium text-gray-700">Status Meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for produto in produtos_campanha %}
+          <tr class="border-t border-orange-100 hover:bg-orange-25" data-produto-id="{{ produto.id }}">
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900">{{ produto.nome }}</div>
+              <div class="text-xs text-orange-600 flex items-center gap-1 mt-1">
+                🎪 <span>Prioritário</span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-gray-600">{{ produto.classe }}</td>
+            <td class="px-4 py-3 text-center">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                {{ produto.roa_pct }}%
+              </span>
+            </td>
+            <td class="px-4 py-3 text-right font-medium text-blue-700">
+              {{ produto.valor_necessario|brl }}
+            </td>
+            <td class="px-4 py-3 text-right font-medium text-red-600 simulador-valor-restante"
+                data-produto-id="{{ produto.id }}"
+                data-valor-necessario="{{ produto.valor_necessario }}"
+                data-roa-pct="{{ produto.roa_pct }}">
+              {{ produto.valor_restante|brl }}
+            </td>
+            <td class="px-4 py-3 text-center">
+              <span class="simulador-status-meta px-2 py-1 rounded text-xs font-medium"
+                    data-produto-id="{{ produto.id }}">
+                {% if produto.valor_restante <= 0 %}
+                  <span class="bg-green-100 text-green-800">✅ Batida</span>
+                {% else %}
+                  <span class="bg-red-100 text-red-800">❌ Pendente</span>
+                {% endif %}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
+  {% endif %}
+
+  <!-- Produtos NÃO EM CAMPANHA -->
+  {% set produtos_normais = simulador_meta.produtos_sugestao | rejectattr('em_campanha') | list %}
+  {% if produtos_normais %}
+  <div class="mb-6">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-lg">📋</span>
+      <h4 class="font-semibold text-gray-800">Produtos Regulares</h4>
+      <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-medium">
+        {{ produtos_normais|length }} produto{{ 's' if produtos_normais|length != 1 else '' }}
+      </span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border border-gray-200 rounded-lg">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-700">Produto</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-700">Classe</th>
+            <th class="text-center px-4 py-3 font-medium text-gray-700">ROA</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Necessário</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-700">Valor Restante</th>
+            <th class="text-center px-4 py-3 font-medium text-gray-700">Status Meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for produto in produtos_normais %}
+          <tr class="border-t hover:bg-gray-50" data-produto-id="{{ produto.id }}">
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900">{{ produto.nome }}</div>
+              <div class="text-xs text-gray-500 mt-1">
+                Regular
+              </div>
+            </td>
+            <td class="px-4 py-3 text-gray-600">{{ produto.classe }}</td>
+            <td class="px-4 py-3 text-center">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                {{ produto.roa_pct }}%
+              </span>
+            </td>
+            <td class="px-4 py-3 text-right font-medium text-blue-700">
+              {{ produto.valor_necessario|brl }}
+            </td>
+            <td class="px-4 py-3 text-right font-medium text-red-600 simulador-valor-restante"
+                data-produto-id="{{ produto.id }}"
+                data-valor-necessario="{{ produto.valor_necessario }}"
+                data-roa-pct="{{ produto.roa_pct }}">
+              {{ produto.valor_restante|brl }}
+            </td>
+            <td class="px-4 py-3 text-center">
+              <span class="simulador-status-meta px-2 py-1 rounded text-xs font-medium"
+                    data-produto-id="{{ produto.id }}">
+                {% if produto.valor_restante <= 0 %}
+                  <span class="bg-green-100 text-green-800">✅ Batida</span>
+                {% else %}
+                  <span class="bg-red-100 text-red-800">❌ Pendente</span>
+                {% endif %}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
   
   <div class="mt-4 text-xs text-gray-500">
     💡 <strong>Dica:</strong> Valores calculados por classe com base nas <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="text-blue-600 underline">Metas Escritório</a>. Produtos da mesma classe competem proporcionalmente pelo ROA. Considera repasse médio de 42,5% e desconta receita passiva.

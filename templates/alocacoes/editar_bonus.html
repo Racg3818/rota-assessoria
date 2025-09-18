@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Editar Bônus — Rota Assessoria{% endblock %}
+{% block subtitle %}Editar dados do bônus/missão{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Editar Bônus/Missão</h2>
+  <a href="{{ url_for('alocacoes.bonus') }}" class="px-3 py-2 rounded border text-sm">← Voltar</a>
+</div>
+
+<div class="border rounded-xl p-6 bg-white">
+  <form method="post">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <!-- Nome da Missão -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Missão</label>
+        <input type="text" name="nome_missao" class="w-full border rounded px-3 py-2"
+               value="{{ bonus.nome_missao or '' }}"
+               placeholder="Ex: Meta de Previdência, Campanha COE, etc." required>
+      </div>
+
+      <!-- Valor do Bônus -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Valor do Bônus (R$)</label>
+        <input type="number" name="valor_bonus" step="0.01" min="0"
+               value="{{ bonus.valor_bonus or '' }}"
+               class="w-full border rounded px-3 py-2"
+               placeholder="0.00" required>
+      </div>
+
+      <!-- Origem -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Origem</label>
+        <select name="origem" class="w-full border rounded px-3 py-2" required>
+          <option value="XP" {% if bonus.get('origem', 'XP') == 'XP' %}selected{% endif %}>XP</option>
+          <option value="SVN" {% if bonus.get('origem', 'XP') == 'SVN' %}selected{% endif %}>SVN</option>
+        </select>
+      </div>
+
+      <!-- Líquido Assessor -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Valor</label>
+        <div class="flex items-center space-x-4">
+          <label class="flex items-center">
+            <input type="checkbox" name="liquido_assessor"
+                   {% if bonus.get('liquido_assessor', True) %}checked{% endif %}
+                   class="mr-2">
+            <span class="text-sm">Valor líquido para o assessor</span>
+          </label>
+        </div>
+        <div class="text-xs text-gray-500 mt-1">
+          Se desmarcado: aplica desconto de 20% (IR) no valor cadastrado
+        </div>
+      </div>
+    </div>
+
+    <!-- Cálculo em Tempo Real -->
+    <div class="bg-gray-50 rounded-lg p-4 mb-4">
+      <h4 class="font-medium text-gray-700 mb-2">Resumo do Cálculo</h4>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <div>
+          <span class="text-gray-600">Valor Cadastrado:</span>
+          <div class="font-medium" id="valor-cadastrado">R$ {{ "{:,.2f}".format(bonus.valor_bonus or 0) }}</div>
+        </div>
+        <div>
+          <span class="text-gray-600">Desconto IR:</span>
+          <div class="font-medium" id="desconto-ir">
+            {% if bonus.get('liquido_assessor', True) %}R$ 0,00{% else %}R$ {{ "{:,.2f}".format((bonus.valor_bonus or 0) * 0.2) }}{% endif %}
+          </div>
+        </div>
+        <div>
+          <span class="text-gray-600">Valor Líquido Final:</span>
+          <div class="font-medium text-green-600" id="valor-liquido">
+            R$ {{ "{:,.2f}".format((bonus.valor_bonus * 0.8) if not bonus.get('liquido_assessor', True) else bonus.valor_bonus or 0) }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-2">
+      <button type="submit" class="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800">
+        Salvar Alterações
+      </button>
+      <a href="{{ url_for('alocacoes.bonus') }}" class="px-4 py-2 border rounded hover:bg-gray-50">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
+
+<script>
+function atualizarCalculos() {
+  const valorInput = document.querySelector('input[name="valor_bonus"]');
+  const liquidoCheckbox = document.querySelector('input[name="liquido_assessor"]');
+
+  const valor = parseFloat(valorInput.value) || 0;
+  const isLiquido = liquidoCheckbox.checked;
+
+  const valorCadastrado = valor;
+  const descontoIr = isLiquido ? 0 : valor * 0.2;
+  const valorLiquido = isLiquido ? valor : valor * 0.8;
+
+  document.getElementById('valor-cadastrado').textContent =
+    'R$ ' + valorCadastrado.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+  document.getElementById('desconto-ir').textContent =
+    'R$ ' + descontoIr.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+  document.getElementById('valor-liquido').textContent =
+    'R$ ' + valorLiquido.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+}
+
+// Event listeners
+document.querySelector('input[name="valor_bonus"]').addEventListener('input', atualizarCalculos);
+document.querySelector('input[name="liquido_assessor"]').addEventListener('change', atualizarCalculos);
+
+// Calcular na inicialização
+atualizarCalculos();
+</script>
+
+{% endblock %}

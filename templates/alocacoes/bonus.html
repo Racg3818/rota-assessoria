@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Bônus e Missões — Rota Assessoria{% endblock %}
+{% block subtitle %}Gerencie seus bônus e missões do mês{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h2 class="font-medium">Bônus e Missões</h2>
+  <div class="flex gap-2">
+    <a href="{{ url_for('alocacoes.index') }}" class="px-3 py-2 rounded border text-sm">← Voltar para Alocações</a>
+  </div>
+</div>
+
+
+<!-- Cadastro de Nova Missão -->
+<div class="border rounded-xl p-6 bg-white mb-6">
+  <h3 class="font-medium mb-4">Cadastrar Nova Missão</h3>
+  <form method="post">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <!-- Nome da Missão -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Missão</label>
+        <input type="text" name="nome_missao" class="w-full border rounded px-3 py-2"
+               placeholder="Ex: Meta de Previdência, Campanha COE, etc." required>
+      </div>
+
+      <!-- Valor do Bônus -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Valor do Bônus (R$)</label>
+        <input type="number" name="valor_bonus" step="0.01" min="0"
+               class="w-full border rounded px-3 py-2"
+               placeholder="0.00" required>
+      </div>
+
+      <!-- Origem -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Origem</label>
+        <select name="origem" class="w-full border rounded px-3 py-2" required>
+          <option value="XP">XP</option>
+          <option value="SVN">SVN</option>
+        </select>
+      </div>
+
+      <!-- Líquido Assessor -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Valor</label>
+        <div class="flex items-center space-x-4">
+          <label class="flex items-center">
+            <input type="checkbox" name="liquido_assessor" checked class="mr-2">
+            <span class="text-sm">Valor líquido para o assessor</span>
+          </label>
+        </div>
+        <div class="text-xs text-gray-500 mt-1">
+          Se desmarcado: aplica desconto de 20% (IR) no valor cadastrado
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800">
+      Cadastrar Missão
+    </button>
+  </form>
+</div>
+
+<!-- Resumo de Bônus -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-600">Total de Missões</div>
+    <div class="text-2xl font-bold">{{ bonus_list|length }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-600">Missões Ativas</div>
+    <div class="text-2xl font-bold text-green-600">{{ bonus_list|selectattr('ativo')|list|length }}</div>
+  </div>
+
+  <div class="border rounded-xl p-4 bg-white">
+    <div class="text-sm text-gray-600">Total Bônus Ativo</div>
+    <div class="text-2xl font-bold text-green-600">R$ {{ "{:,.2f}".format(total_bonus) }}</div>
+  </div>
+</div>
+
+<!-- Lista de Missões -->
+{% if bonus_list %}
+<div class="border rounded-xl p-6 bg-white">
+  <h3 class="font-medium mb-4">Suas Missões</h3>
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b">
+          <th class="text-left py-2">Status</th>
+          <th class="text-left py-2">Nome da Missão</th>
+          <th class="text-center py-2">Origem</th>
+          <th class="text-right py-2">Valor Cadastrado</th>
+          <th class="text-right py-2">Valor Líquido</th>
+          <th class="text-center py-2">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bonus in bonus_list %}
+        {% set valor_liquido = (bonus.valor_bonus * 0.8) if not bonus.get('liquido_assessor', True) else bonus.valor_bonus %}
+        <tr class="border-b hover:bg-gray-50">
+          <td class="py-3">
+            {% if bonus.ativo %}
+              <span class="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                ✓ Ativa
+              </span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">
+                ✗ Inativa
+              </span>
+            {% endif %}
+          </td>
+          <td class="py-3">
+            <div class="font-medium">{{ bonus.nome_missao }}</div>
+            <div class="text-sm text-gray-500">
+              {{ bonus.mes }} •
+              {% if bonus.get('liquido_assessor', True) %}
+                <span class="text-green-600">Líquido</span>
+              {% else %}
+                <span class="text-orange-600">Bruto (-20% IR)</span>
+              {% endif %}
+            </div>
+          </td>
+          <td class="py-3 text-center">
+            <span class="inline-flex items-center px-2 py-1 rounded text-xs
+                   {% if bonus.get('origem', 'XP') == 'XP' %}bg-blue-100 text-blue-800{% else %}bg-purple-100 text-purple-800{% endif %}">
+              {{ bonus.get('origem', 'XP') }}
+            </span>
+          </td>
+          <td class="py-3 text-right">
+            <span class="font-medium {% if bonus.ativo %}text-gray-700{% else %}text-gray-500{% endif %}">
+              R$ {{ "{:,.2f}".format(bonus.valor_bonus or 0) }}
+            </span>
+          </td>
+          <td class="py-3 text-right">
+            <span class="font-medium {% if bonus.ativo %}text-green-600{% else %}text-gray-500{% endif %}">
+              R$ {{ "{:,.2f}".format(valor_liquido or 0) }}
+            </span>
+            {% if not bonus.get('liquido_assessor', True) %}
+              <div class="text-xs text-gray-500">80% do bruto</div>
+            {% endif %}
+          </td>
+          <td class="py-3 text-center">
+            <div class="flex items-center justify-center gap-2">
+              <!-- Editar -->
+              <a href="{{ url_for('alocacoes.editar_bonus', bonus_id=bonus.id) }}"
+                 class="px-2 py-1 text-xs rounded border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                 title="Editar missão">
+                Editar
+              </a>
+
+              <!-- Toggle Ativo/Inativo -->
+              <form method="post" action="{{ url_for('alocacoes.toggle_bonus', bonus_id=bonus.id) }}" class="inline">
+                <button type="submit"
+                        class="px-2 py-1 text-xs rounded border {% if bonus.ativo %}bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100{% else %}bg-green-50 text-green-700 border-green-200 hover:bg-green-100{% endif %}"
+                        title="{% if bonus.ativo %}Desativar{% else %}Ativar{% endif %} missão">
+                  {% if bonus.ativo %}Desativar{% else %}Ativar{% endif %}
+                </button>
+              </form>
+
+              <!-- Excluir -->
+              <form method="post" action="{{ url_for('alocacoes.excluir_bonus', bonus_id=bonus.id) }}"
+                    class="inline" onsubmit="return confirm('Tem certeza que deseja excluir esta missão?')">
+                <button type="submit"
+                        class="px-2 py-1 text-xs rounded border bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                        title="Excluir missão">
+                  Excluir
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="border rounded-xl p-6 bg-white text-center">
+  <div class="text-gray-500 mb-2">Nenhuma missão cadastrada ainda</div>
+  <p class="text-sm text-gray-400">Use o formulário acima para cadastrar sua primeira missão e começar a acompanhar seus bônus.</p>
+</div>
+{% endif %}
+
+{% endblock %}
