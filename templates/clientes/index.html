@@ -3,21 +3,42 @@
 {% block subtitle %}Lista de clientes{% endblock %}
 {% block content %}
 
-<div class="flex items-center justify-between mb-4">
-  <h2 class="font-medium">Clientes</h2>
-  <div class="flex items-center gap-2">
-    <a href="{{ url_for('clientes.importar_em_massa') }}"
-       class="px-3 py-2 rounded border text-sm hover:bg-gray-50">
-      Importar (.csv)
-    </a>
-    <a href="{{ url_for('clientes.baixar_template_clientes') }}"
-       class="px-3 py-2 rounded border text-sm hover:bg-gray-50">
-      Baixar template
-    </a>
-    <a href="/clientes/novo"
-       class="px-3 py-2 rounded bg-gray-900 text-white text-sm">
-      Novo cliente
-    </a>
+<!-- Header Moderno para Clientes -->
+<div class="relative mb-8 bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 rounded-3xl p-6 text-white overflow-hidden">
+  <!-- Background Pattern -->
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-64 h-64 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-64 h-64 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-xl">👥</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Gestão de Clientes</h1>
+        </div>
+        <p class="text-purple-100 text-sm md:text-base">Gerencie sua carteira de clientes</p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap gap-2">
+        <a href="{{ url_for('clientes.importar_em_massa') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          📥 Importar CSV
+        </a>
+        <a href="{{ url_for('clientes.baixar_template_clientes') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          📄 Template
+        </a>
+        <a href="/clientes/novo"
+           class="px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
+          ➕ Novo Cliente
+        </a>
+      </div>
+    </div>
   </div>
 </div>
 

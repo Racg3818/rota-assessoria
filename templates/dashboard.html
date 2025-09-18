@@ -5,159 +5,358 @@
 
 {% set modelos = ['TRADICIONAL','ASSET','FEE_BASED','FEE_BASED_SEM_RV'] %}
 
-<!-- Formulário de meta do mês -->
-<!-- Meta gerenciada automaticamente via Metas Escritório -->
-<div class="mb-6 bg-blue-50 rounded-xl p-6 border border-blue-200">
-  <div class="text-center">
-    <h3 class="font-medium text-lg mb-2 text-blue-800">Meta do Mês: {{ mes }}</h3>
-    <div class="text-4xl font-bold text-blue-700 mb-3">{{ (meta or 0)|brl }}</div>
-    <div class="text-sm text-blue-600">
-      Gerenciada automaticamente via <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="underline font-semibold hover:text-blue-800">Metas Escritório</a>
+<!-- Header Principal com Meta do Mês -->
+<div class="relative mb-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-700 rounded-3xl p-8 text-white overflow-hidden">
+  <!-- Background Pattern -->
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-72 h-72 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+    <div class="absolute -bottom-8 left-20 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-4000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold mb-2 text-white">Dashboard Financeiro</h1>
+        <p class="text-indigo-100 text-lg">Resumo executivo de {{ mes }}</p>
+      </div>
+      <div class="text-right">
+        <div class="text-sm text-indigo-200 mb-1">Meta do Mês</div>
+        <div class="text-4xl font-bold">{{ (meta or 0)|brl }}</div>
+        <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="text-xs text-indigo-200 hover:text-white transition-colors underline">
+          Gerenciar Metas →
+        </a>
+      </div>
     </div>
   </div>
 </div>
 
 
-<!-- KPIs principais -->
-<div class="grid grid-cols-1 md:grid-cols-6 gap-4">
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita do escritório (mês)</div>
-    <div class="text-2xl font-semibold">{{ receita_total|brl }}</div>
-    <div class="text-xs text-gray-400 mt-1">
-      Ativa: {{ receita_ativa_mes|brl }} + Recorrente: {{ receita_recorrente_mes|brl }}
-      {% if (bonus_ativo_mes or 0) > 0 %} + Bônus: {{ bonus_ativo_mes|brl }}{% endif %}
+<!-- KPIs Principais - Design Moderno -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+  <!-- Receita Escritório -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">Escritório</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Receita Total do Mês</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ receita_total|brl }}</div>
+      <div class="text-xs text-gray-500">
+        <div>• Ativa: {{ receita_ativa_mes|brl }}</div>
+        <div>• Recorrente: {{ receita_recorrente_mes|brl }}</div>
+        {% if (bonus_ativo_mes or 0) > 0 %}<div>• Bônus: {{ bonus_ativo_mes|brl }}</div>{% endif %}
+      </div>
     </div>
     {% if (receita_recorrente_mes or 0) <= 0 %}
-    <div class="text-xs text-orange-600 mt-1">
-      Para ver receita recorrente: <a href="{{ url_for('receita.index') }}" class="underline">configure produtos recorrentes</a> e verifique se os clientes têm <a href="{{ url_for('clientes.index') }}" class="underline">repasse configurado</a>
+    <div class="mt-3 p-2 bg-orange-50 rounded-lg border-l-2 border-orange-300">
+      <div class="text-xs text-orange-700">
+        <strong>Dica:</strong> Configure <a href="{{ url_for('receita.index') }}" class="underline hover:text-orange-800">produtos recorrentes</a>
+      </div>
     </div>
     {% endif %}
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita do assessor (mês)</div>
-    <div class="text-2xl font-semibold">{{ receita_assessor_mes|brl }}</div>
-    <div class="text-xs text-gray-400 mt-1">
-      80% × Receita Escritório × Média Ponderada{% if (bonus_ativo_mes or 0) > 0 %} + Bônus{% endif %}
+  <!-- Receita Assessor -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">Assessor</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Receita do Assessor</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ receita_assessor_mes|brl }}</div>
+      <div class="text-xs text-gray-500">
+        80% × Receita × Média Ponderada{% if (bonus_ativo_mes or 0) > 0 %} + Bônus{% endif %}
+      </div>
     </div>
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Clientes cadastrados</div>
-    <div class="text-2xl font-semibold">{{ clientes|length }}</div>
+  <!-- Clientes -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">Base</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Clientes Cadastrados</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ clientes|length }}</div>
+      <div class="text-xs text-gray-500">Total na carteira</div>
+    </div>
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Mediana do NET (assessor)</div>
-    <div class="text-2xl font-semibold">{{ mediana_net|brl }}</div>
+  <!-- Mediana NET -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-medium rounded-full">Mediana</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Mediana NET</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ mediana_net|brl }}</div>
+      <div class="text-xs text-gray-500">Patrimônio mediano</div>
+    </div>
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Mediana receita por cliente — {{ mes[:4] }}</div>
-    <div class="text-2xl font-semibold">{{ mediana_receita_escritorio_ano|brl }}</div>
+  <!-- Mediana Receita -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-teal-500 to-teal-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-teal-100 text-teal-700 text-xs font-medium rounded-full">{{ mes[:4] }}</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Mediana Receita/Cliente</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ mediana_receita_escritorio_ano|brl }}</div>
+      <div class="text-xs text-gray-500">Ano {{ mes[:4] }}</div>
+    </div>
   </div>
 
+  <!-- ROA -->
   {% set roa_value = (roa_percentual or 0)|round(2) %}
   {% if roa_value < 0.4 %}
-    {% set roa_bg = 'bg-red-100 border-red-300' %}
-    {% set roa_text = 'text-red-800' %}
+    {% set roa_gradient = 'from-red-500 to-red-600' %}
+    {% set roa_bg = 'bg-red-50' %}
+    {% set roa_border = 'border-red-200' %}
+    {% set roa_badge = 'bg-red-100 text-red-700' %}
+    {% set roa_text = 'text-red-600' %}
   {% elif roa_value >= 0.4 and roa_value <= 0.59 %}
-    {% set roa_bg = 'bg-amber-100 border-amber-300' %}
-    {% set roa_text = 'text-amber-800' %}
+    {% set roa_gradient = 'from-amber-500 to-amber-600' %}
+    {% set roa_bg = 'bg-amber-50' %}
+    {% set roa_border = 'border-amber-200' %}
+    {% set roa_badge = 'bg-amber-100 text-amber-700' %}
+    {% set roa_text = 'text-amber-600' %}
   {% else %}
-    {% set roa_bg = 'bg-green-100 border-green-300' %}
-    {% set roa_text = 'text-green-800' %}
+    {% set roa_gradient = 'from-green-500 to-green-600' %}
+    {% set roa_bg = 'bg-green-50' %}
+    {% set roa_border = 'border-green-200' %}
+    {% set roa_badge = 'bg-green-100 text-green-700' %}
+    {% set roa_text = 'text-green-600' %}
   {% endif %}
-  
-  <div class="border rounded-xl p-4 {{ roa_bg }}">
-    <div class="text-sm text-gray-500">ROA da carteira</div>
-    <div class="text-2xl font-semibold {{ roa_text }}">
-      {{ roa_value }}%
+
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border {{ roa_border }} hover:shadow-xl transition-all duration-300 hover:-translate-y-1 {{ roa_bg }}">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br {{ roa_gradient }} rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 {{ roa_badge }} text-xs font-medium rounded-full">ROA</span>
     </div>
-    <div class="text-xs text-gray-400 mt-1">
-      (Receita × 12) ÷ NET Total
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">ROA da Carteira</h3>
+      <div class="text-2xl font-bold {{ roa_text }}">{{ roa_value }}%</div>
+      <div class="text-xs text-gray-500">(Receita × 12) ÷ NET Total</div>
     </div>
   </div>
 </div>
 
-<!-- Meta x Atingido -->
-<div class="grid grid-cols-1 gap-6 mt-6">
+<!-- Atingimento da Meta - Design Moderno -->
+<div class="mb-8">
   {% set pct = (receita_total / meta * 100) if meta else 0 %}
   {% set pct_clamped = 100 if pct>100 else (0 if pct<0 else pct) %}
-  
+
   {% if pct >= 100 %}
-    {% set progress_bg = 'bg-green-50 border-green-300' %}
-    {% set progress_text = 'text-green-800' %}
+    {% set progress_gradient = 'from-emerald-500 to-emerald-600' %}
+    {% set progress_bg = 'bg-emerald-50' %}
+    {% set progress_border = 'border-emerald-200' %}
+    {% set progress_text = 'text-emerald-700' %}
+    {% set progress_icon = '🎯' %}
+    {% set progress_status = 'Meta Atingida!' %}
   {% elif pct >= 75 %}
-    {% set progress_bg = 'bg-blue-50 border-blue-300' %}
-    {% set progress_text = 'text-blue-800' %}
+    {% set progress_gradient = 'from-blue-500 to-blue-600' %}
+    {% set progress_bg = 'bg-blue-50' %}
+    {% set progress_border = 'border-blue-200' %}
+    {% set progress_text = 'text-blue-700' %}
+    {% set progress_icon = '🚀' %}
+    {% set progress_status = 'Quase lá!' %}
   {% elif pct >= 50 %}
-    {% set progress_bg = 'bg-amber-50 border-amber-300' %}
-    {% set progress_text = 'text-amber-800' %}
+    {% set progress_gradient = 'from-amber-500 to-amber-600' %}
+    {% set progress_bg = 'bg-amber-50' %}
+    {% set progress_border = 'border-amber-200' %}
+    {% set progress_text = 'text-amber-700' %}
+    {% set progress_icon = '⚡' %}
+    {% set progress_status = 'No caminho certo' %}
   {% else %}
-    {% set progress_bg = 'bg-red-50 border-red-300' %}
-    {% set progress_text = 'text-red-800' %}
+    {% set progress_gradient = 'from-red-500 to-red-600' %}
+    {% set progress_bg = 'bg-red-50' %}
+    {% set progress_border = 'border-red-200' %}
+    {% set progress_text = 'text-red-700' %}
+    {% set progress_icon = '💪' %}
+    {% set progress_status = 'Vamos acelerar!' %}
   {% endif %}
-  
-  <div class="border rounded-xl p-6 {{ progress_bg }}">
-    <div class="text-center">
-      <h3 class="font-medium text-lg mb-2">Atingimento da Meta</h3>
-      <div class="text-4xl font-bold {{ progress_text }} mb-3">{{ '%.1f'|format(pct if meta else 0) }}%</div>
-      
-      <div class="w-full bg-gray-200 rounded-full h-4 mb-3">
-        <div class="h-4 bg-emerald-500 rounded-full transition-all duration-300" style="width: {{ pct_clamped }}%"></div>
+
+  <div class="relative bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border {{ progress_border }} {{ progress_bg }} overflow-hidden">
+    <!-- Background Decoration -->
+    <div class="absolute top-0 right-0 transform translate-x-16 -translate-y-16">
+      <div class="w-64 h-64 bg-gradient-to-br {{ progress_gradient }} rounded-full opacity-10"></div>
+    </div>
+
+    <div class="relative z-10">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <div class="flex items-center gap-3 mb-2">
+            <span class="text-2xl">{{ progress_icon }}</span>
+            <h3 class="text-xl font-bold text-gray-900">Atingimento da Meta</h3>
+          </div>
+          <p class="text-sm font-medium {{ progress_text }}">{{ progress_status }}</p>
+        </div>
+        <div class="text-right">
+          <div class="text-4xl font-bold {{ progress_text }} mb-1">{{ '%.1f'|format(pct if meta else 0) }}%</div>
+          <div class="text-sm text-gray-600">
+            {{ receita_total|brl }} / {{ (meta or 0)|brl }}
+          </div>
+        </div>
       </div>
-      
-      <div class="text-sm text-gray-600">
-        <span class="font-semibold">{{ receita_total|brl }}</span> de <span class="font-semibold">{{ (meta or 0)|brl }}</span>
-      </div>
-      <div class="text-xs text-gray-500 mt-1">
+
+      <!-- Progress Bar Moderna -->
+      <div class="space-y-4">
+        <div class="relative">
+          <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+            <div class="h-full bg-gradient-to-r {{ progress_gradient }} rounded-full transition-all duration-500 ease-out shadow-sm"
+                 style="width: {{ pct_clamped }}%"></div>
+          </div>
+          <div class="absolute -top-8 transition-all duration-500 ease-out" style="left: {{ pct_clamped }}%">
+            <div class="transform -translate-x-1/2">
+              <div class="bg-white px-2 py-1 rounded-lg shadow-lg border {{ progress_border }}">
+                <div class="text-xs font-medium {{ progress_text }}">{{ '%.1f'|format(pct if meta else 0) }}%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-3 gap-4 pt-4">
+          <div class="text-center">
+            <div class="text-lg font-bold text-gray-900">{{ receita_total|brl }}</div>
+            <div class="text-xs text-gray-500">Receita Atual</div>
+          </div>
+          <div class="text-center">
+            <div class="text-lg font-bold {{ progress_text }}">{{ ((meta or 0) - receita_total)|brl if meta and meta > receita_total else '+' + (receita_total - (meta or 0))|brl }}</div>
+            <div class="text-xs text-gray-500">{% if meta and meta > receita_total %}Falta{% else %}Excesso{% endif %}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-lg font-bold text-gray-900">{{ (meta or 0)|brl }}</div>
+            <div class="text-xs text-gray-500">Meta do Mês</div>
+          </div>
+        </div>
+
         {% if not meta or meta == 0 %}
-          (defina metas em Metas Escritório para ativar)
-        {% else %}
-          receita total do mês ({{ mes }})
+        <div class="mt-4 p-4 bg-orange-50 rounded-2xl border border-orange-200">
+          <div class="flex items-center gap-3">
+            <span class="text-orange-500 text-lg">⚠️</span>
+            <div>
+              <p class="text-sm font-medium text-orange-800">Meta não definida</p>
+              <p class="text-xs text-orange-600">Configure em <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="underline hover:text-orange-800">Metas Escritório</a> para ativar o acompanhamento</p>
+            </div>
+          </div>
+        </div>
         {% endif %}
       </div>
     </div>
   </div>
 </div>
 
-<!-- Penetração de base - XP, MB e Total -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+<!-- Penetração de Base - Design Moderno -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
   <!-- Penetração XP -->
   {% set xp_value = (xp_pct or 0)|round(1) %}
+  <div class="relative bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 text-white overflow-hidden shadow-2xl border-2 border-yellow-400/50">
+    <!-- Background Pattern -->
+    <div class="absolute inset-0 opacity-10">
+      <div class="absolute top-0 right-0 w-32 h-32 bg-yellow-400 rounded-full transform translate-x-16 -translate-y-16"></div>
+      <div class="absolute bottom-0 left-0 w-24 h-24 bg-yellow-300 rounded-full transform -translate-x-12 translate-y-12"></div>
+    </div>
 
-  <div class="border-2 border-yellow-400 rounded-xl p-6 bg-black text-white">
-    <div class="text-center">
-      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2 text-white">
-        <span class="text-yellow-400 font-bold">XP</span>
-        Penetração de Base
-      </h3>
-      <div class="text-4xl font-bold text-yellow-400 mb-3">{{ xp_value }}%</div>
-      <div class="text-sm text-gray-300">
-        <span class="font-semibold">{{ xp_numerador or 0 }}</span> de <span class="font-semibold">{{ xp_denominador or 0 }}</span> clientes
+    <div class="relative z-10">
+      <div class="flex items-start justify-between mb-6">
+        <div class="w-12 h-12 bg-yellow-400 rounded-xl flex items-center justify-center">
+          <span class="text-black font-bold text-lg">XP</span>
+        </div>
+        <span class="px-3 py-1 bg-yellow-400/20 text-yellow-400 text-xs font-medium rounded-full border border-yellow-400/30">
+          Campanha
+        </span>
       </div>
-      <div class="text-xs text-gray-400 mt-1">
-        com alocação efetivada não-RFD em campanha ({{ mes }})
+
+      <div class="space-y-4">
+        <h3 class="text-lg font-bold text-white">Penetração XP</h3>
+        <div class="text-5xl font-bold text-yellow-400 mb-2">{{ xp_value }}%</div>
+
+        <div class="space-y-2">
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-300">Clientes ativos:</span>
+            <span class="text-yellow-400 font-semibold">{{ xp_numerador or 0 }}/{{ xp_denominador or 0 }}</span>
+          </div>
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="h-2 bg-gradient-to-r from-yellow-400 to-yellow-500 rounded-full transition-all duration-300"
+                 style="width: {{ xp_value }}%"></div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-400 leading-relaxed">
+          Clientes com alocação efetivada não-RFD em campanha ({{ mes }})
+        </p>
       </div>
     </div>
   </div>
 
   <!-- Penetração MB -->
   {% set mb_value = (mb_pct or 0)|round(1) %}
+  <div class="relative bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 text-white overflow-hidden shadow-2xl border-2 border-red-500/50">
+    <!-- Background Pattern -->
+    <div class="absolute inset-0 opacity-10">
+      <div class="absolute top-0 right-0 w-32 h-32 bg-red-500 rounded-full transform translate-x-16 -translate-y-16"></div>
+      <div class="absolute bottom-0 left-0 w-24 h-24 bg-red-400 rounded-full transform -translate-x-12 translate-y-12"></div>
+    </div>
 
-  <div class="border-2 border-red-500 rounded-xl p-6 bg-black text-white">
-    <div class="text-center">
-      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2 text-white">
-        <span class="text-red-500 font-bold">MB</span>
-        Penetração de Base
-      </h3>
-      <div class="text-4xl font-bold text-red-500 mb-3">{{ mb_value }}%</div>
-      <div class="text-sm text-gray-300">
-        <span class="font-semibold">{{ mb_numerador or 0 }}</span> de <span class="font-semibold">{{ mb_denominador or 0 }}</span> clientes
+    <div class="relative z-10">
+      <div class="flex items-start justify-between mb-6">
+        <div class="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center">
+          <span class="text-white font-bold text-lg">MB</span>
+        </div>
+        <span class="px-3 py-1 bg-red-500/20 text-red-400 text-xs font-medium rounded-full border border-red-500/30">
+          RFD Apenas
+        </span>
       </div>
-      <div class="text-xs text-gray-400 mt-1">
-        com alocação efetivada APENAS em Renda Fixa Digital ({{ mes }})
+
+      <div class="space-y-4">
+        <h3 class="text-lg font-bold text-white">Penetração MB</h3>
+        <div class="text-5xl font-bold text-red-500 mb-2">{{ mb_value }}%</div>
+
+        <div class="space-y-2">
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-300">Clientes ativos:</span>
+            <span class="text-red-400 font-semibold">{{ mb_numerador or 0 }}/{{ mb_denominador or 0 }}</span>
+          </div>
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="h-2 bg-gradient-to-r from-red-500 to-red-600 rounded-full transition-all duration-300"
+                 style="width: {{ mb_value }}%"></div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-400 leading-relaxed">
+          Clientes com alocação efetivada APENAS em Renda Fixa Digital ({{ mes }})
+        </p>
       </div>
     </div>
   </div>
@@ -165,28 +364,62 @@
   <!-- Penetração Total -->
   {% set total_value = (total_pct or 0)|round(1) %}
   {% if total_value <= 10 %}
-    {% set total_bg = 'bg-red-100 border-red-300' %}
-    {% set total_text = 'text-red-800' %}
+    {% set total_gradient = 'from-red-500 to-red-600' %}
+    {% set total_bg = 'bg-red-50' %}
+    {% set total_border = 'border-red-200' %}
+    {% set total_accent = 'text-red-600' %}
+    {% set total_badge = 'bg-red-100 text-red-700' %}
+    {% set total_icon = '🔴' %}
   {% elif total_value >= 11 and total_value <= 19 %}
-    {% set total_bg = 'bg-amber-100 border-amber-300' %}
-    {% set total_text = 'text-amber-800' %}
+    {% set total_gradient = 'from-amber-500 to-amber-600' %}
+    {% set total_bg = 'bg-amber-50' %}
+    {% set total_border = 'border-amber-200' %}
+    {% set total_accent = 'text-amber-600' %}
+    {% set total_badge = 'bg-amber-100 text-amber-700' %}
+    {% set total_icon = '🟡' %}
   {% else %}
-    {% set total_bg = 'bg-green-100 border-green-300' %}
-    {% set total_text = 'text-green-800' %}
+    {% set total_gradient = 'from-emerald-500 to-emerald-600' %}
+    {% set total_bg = 'bg-emerald-50' %}
+    {% set total_border = 'border-emerald-200' %}
+    {% set total_accent = 'text-emerald-600' %}
+    {% set total_badge = 'bg-emerald-100 text-emerald-700' %}
+    {% set total_icon = '🟢' %}
   {% endif %}
 
-  <div class="border rounded-xl p-6 {{ total_bg }}">
-    <div class="text-center">
-      <h3 class="font-medium text-lg mb-2 flex items-center justify-center gap-2">
-        <span class="text-gray-700 font-bold">TOTAL</span>
-        Penetração de Base
-      </h3>
-      <div class="text-4xl font-bold {{ total_text }} mb-3">{{ total_value }}%</div>
-      <div class="text-sm text-gray-600">
-        <span class="font-semibold">{{ total_numerador or 0 }}</span> de <span class="font-semibold">{{ total_denominador or 0 }}</span> clientes
+  <div class="relative bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border {{ total_border }} {{ total_bg }} overflow-hidden">
+    <!-- Background Decoration -->
+    <div class="absolute top-0 right-0 transform translate-x-16 -translate-y-16">
+      <div class="w-32 h-32 bg-gradient-to-br {{ total_gradient }} rounded-full opacity-20"></div>
+    </div>
+
+    <div class="relative z-10">
+      <div class="flex items-start justify-between mb-6">
+        <div class="w-12 h-12 bg-gradient-to-br {{ total_gradient }} rounded-xl flex items-center justify-center">
+          <span class="text-white font-bold text-sm">ALL</span>
+        </div>
+        <span class="px-3 py-1 {{ total_badge }} text-xs font-medium rounded-full">
+          {{ total_icon }} Total
+        </span>
       </div>
-      <div class="text-xs text-gray-500 mt-1">
-        com alocação efetivada em campanha (XP + MB) ({{ mes }})
+
+      <div class="space-y-4">
+        <h3 class="text-lg font-bold text-gray-900">Penetração Total</h3>
+        <div class="text-5xl font-bold {{ total_accent }} mb-2">{{ total_value }}%</div>
+
+        <div class="space-y-2">
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-600">Clientes ativos:</span>
+            <span class="{{ total_accent }} font-semibold">{{ total_numerador or 0 }}/{{ total_denominador or 0 }}</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="h-2 bg-gradient-to-r {{ total_gradient }} rounded-full transition-all duration-300"
+                 style="width: {{ total_value }}%"></div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-500 leading-relaxed">
+          Total de clientes com alocação efetivada em campanha (XP + MB) ({{ mes }})
+        </p>
       </div>
     </div>
   </div>

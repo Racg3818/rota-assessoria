@@ -3,73 +3,204 @@
 {% block subtitle %}Resumo e listagem das alocações{% endblock %}
 {% block content %}
 
-<div class="flex items-center justify-between mb-4">
-  <h2 class="font-medium">Alocações</h2>
-  <div class="flex gap-2">
-    <button onclick="toggleView()" id="toggleViewBtn" class="px-3 py-2 rounded border text-sm">Ver Tabela</button>
-    <a href="{{ url_for('alocacoes.bonus') }}" class="px-3 py-2 rounded border text-sm">Bônus/Missões</a>
-    <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="px-3 py-2 rounded border text-sm">Metas Escritório</a>
-    <a href="{{ url_for('alocacoes.produtos') }}" class="px-3 py-2 rounded border text-sm">Produtos</a>
-    <a href="{{ url_for('alocacoes.novo') }}" class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Nova alocação</a>
-  </div>
-</div>
-
-<!-- KPIs de Receitas (apenas confirmados) -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita Escritório (confirmados)</div>
-    <div class="text-2xl font-semibold text-green-700" data-receita="escritorio">{{ total_rec_escritorio|brl }}</div>
+<!-- Header Moderno para Alocações -->
+<div class="relative mb-8 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl p-6 text-white overflow-hidden">
+  <!-- Background Pattern -->
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-64 h-64 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-64 h-64 bg-green-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
   </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Receita Assessor (confirmados)</div>
-    <div class="text-2xl font-semibold text-green-700" data-receita="assessor">{{ total_rec_assessor|brl }}</div>
-  </div>
+  <div class="relative z-10">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-xl">📦</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Gestão de Alocações</h1>
+        </div>
+        <p class="text-emerald-100 text-sm md:text-base">Controle suas operações e metas</p>
+      </div>
 
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500">Bônus Ativos</div>
-    <div class="text-2xl font-semibold text-blue-700">{{ total_bonus|brl }}</div>
-    <div class="text-xs text-gray-400 mt-1">{{ bonus_list|selectattr('ativo')|list|length }} missão(ões)</div>
-  </div>
-
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-sm text-gray-500 mb-2">Gráfico Receita por Produto</div>
-    <div class="flex justify-center">
-      <canvas id="receitaChart" width="120" height="120"></canvas>
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap gap-2">
+        <button onclick="toggleView()" id="toggleViewBtn"
+                class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          Ver Tabela
+        </button>
+        <a href="{{ url_for('alocacoes.bonus') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          🎯 Bônus/Missões
+        </a>
+        <a href="{{ url_for('alocacoes.metas_escritorio') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          📊 Metas Escritório
+        </a>
+        <a href="{{ url_for('alocacoes.produtos') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          🧩 Produtos
+        </a>
+        <a href="{{ url_for('alocacoes.novo') }}"
+           class="px-4 py-2 bg-white text-emerald-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
+          ➕ Nova Alocação
+        </a>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- SIMULADOR DE META -->
+<!-- KPIs Modernos - Alocações -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+  <!-- Receita Escritório -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-emerald-300/20 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">Confirmado</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Receita Escritório</h3>
+      <div class="text-2xl font-bold text-gray-900" data-receita="escritorio">{{ total_rec_escritorio|brl }}</div>
+      <div class="text-xs text-emerald-600 font-medium">Operações confirmadas</div>
+    </div>
+  </div>
+
+  <!-- Receita Assessor -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-teal-300/20 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-teal-500 to-teal-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-teal-100 text-teal-700 text-xs font-medium rounded-full">Assessor</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Receita Assessor</h3>
+      <div class="text-2xl font-bold text-gray-900" data-receita="assessor">{{ total_rec_assessor|brl }}</div>
+      <div class="text-xs text-teal-600 font-medium">Parte do assessor</div>
+    </div>
+  </div>
+
+  <!-- Bônus Ativos -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-orange-300/20 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded-full">Bônus</span>
+    </div>
+    <div class="space-y-2">
+      <h3 class="text-sm font-medium text-gray-600">Bônus Ativos</h3>
+      <div class="text-2xl font-bold text-gray-900">{{ total_bonus|brl }}</div>
+      <div class="text-xs text-orange-600 font-medium">{{ bonus_list|selectattr('ativo')|list|length }} missão(ões) ativa(s)</div>
+    </div>
+  </div>
+
+  <!-- Gráfico Receita -->
+  <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-gray-100 hover:shadow-xl hover:shadow-purple-300/20 transition-all duration-300 hover:-translate-y-1">
+    <div class="flex items-start justify-between mb-4">
+      <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+        </svg>
+      </div>
+      <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">Análise</span>
+    </div>
+    <div class="space-y-3">
+      <h3 class="text-sm font-medium text-gray-600">Receita por Produto</h3>
+      <div class="flex justify-center">
+        <canvas id="receitaChart" width="120" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SIMULADOR DE META - Design Moderno -->
 {% if simulador_meta.falta_receita > 0 %}
-<div class="border rounded-xl p-6 bg-gradient-to-r from-blue-50 to-indigo-50 mb-6">
-  <div class="flex items-center gap-2 mb-4">
-    <span class="text-2xl">🎯</span>
-    <h3 class="text-lg font-semibold text-gray-800">Simulador de Meta - {{ simulador_meta.mes_atual }}</h3>
+<div class="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-3xl p-8 text-white overflow-hidden mb-8">
+  <!-- Background Pattern -->
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-72 h-72 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+    <div class="absolute -bottom-8 left-20 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-4000"></div>
   </div>
-  
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-    <div class="bg-white border rounded-lg p-4 text-center">
-      <div class="text-sm text-gray-600">Meta do Mês</div>
-      <div class="text-xl font-bold text-blue-700">{{ simulador_meta.meta_mes|brl }}</div>
+
+  <div class="relative z-10">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+        <span class="text-2xl">🎯</span>
+      </div>
+      <div>
+        <h3 class="text-2xl font-bold text-white">Simulador de Meta</h3>
+        <p class="text-blue-100">{{ simulador_meta.mes_atual }}</p>
+      </div>
     </div>
-    <div class="bg-white border rounded-lg p-4 text-center">
-      <div class="text-sm text-gray-600">Receita Ativa</div>
-      <div class="text-xl font-bold text-green-700" id="simulador-receita-ativa">{{ (simulador_meta.receita_atual - simulador_meta.bonus_ativo)|brl }}</div>
-    </div>
-    <div class="bg-white border rounded-lg p-4 text-center">
-      <div class="text-sm text-gray-600">Receita Passiva</div>
-      <div class="text-xl font-bold text-purple-700" id="simulador-receita-passiva">{{ simulador_meta.receita_passiva|brl }}</div>
-    </div>
-    <div class="bg-white border rounded-lg p-4 text-center">
-      <div class="text-sm text-gray-600">Bônus Ativos</div>
-      <div class="text-xl font-bold text-orange-700" id="simulador-bonus-ativo">{{ simulador_meta.bonus_ativo|brl }}</div>
-    </div>
-    <div class="bg-white border rounded-lg p-4 text-center">
-      <div class="text-sm text-gray-600">Falta Atingir</div>
-      <div class="text-xl font-bold text-red-700" id="simulador-falta-receita">{{ simulador_meta.falta_receita|brl }}</div>
+
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <!-- Meta do Mês -->
+      <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-center">
+        <div class="w-8 h-8 bg-blue-400 rounded-lg flex items-center justify-center mx-auto mb-2">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        </div>
+        <div class="text-xs text-blue-200 mb-1">Meta do Mês</div>
+        <div class="text-lg font-bold text-white">{{ simulador_meta.meta_mes|brl }}</div>
+      </div>
+
+      <!-- Receita Ativa -->
+      <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-center">
+        <div class="w-8 h-8 bg-emerald-400 rounded-lg flex items-center justify-center mx-auto mb-2">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+          </svg>
+        </div>
+        <div class="text-xs text-blue-200 mb-1">Receita Ativa</div>
+        <div class="text-lg font-bold text-emerald-300" id="simulador-receita-ativa">{{ (simulador_meta.receita_atual - simulador_meta.bonus_ativo)|brl }}</div>
+      </div>
+
+      <!-- Receita Passiva -->
+      <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-center">
+        <div class="w-8 h-8 bg-purple-400 rounded-lg flex items-center justify-center mx-auto mb-2">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+          </svg>
+        </div>
+        <div class="text-xs text-blue-200 mb-1">Receita Passiva</div>
+        <div class="text-lg font-bold text-purple-300" id="simulador-receita-passiva">{{ simulador_meta.receita_passiva|brl }}</div>
+      </div>
+
+      <!-- Bônus Ativos -->
+      <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-center">
+        <div class="w-8 h-8 bg-orange-400 rounded-lg flex items-center justify-center mx-auto mb-2">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>
+          </svg>
+        </div>
+        <div class="text-xs text-blue-200 mb-1">Bônus Ativos</div>
+        <div class="text-lg font-bold text-orange-300" id="simulador-bonus-ativo">{{ simulador_meta.bonus_ativo|brl }}</div>
+      </div>
+
+      <!-- Falta Atingir -->
+      <div class="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-center">
+        <div class="w-8 h-8 bg-red-400 rounded-lg flex items-center justify-center mx-auto mb-2">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+          </svg>
+        </div>
+        <div class="text-xs text-blue-200 mb-1">Falta Atingir</div>
+        <div class="text-lg font-bold text-red-300" id="simulador-falta-receita">{{ simulador_meta.falta_receita|brl }}</div>
+      </div>
     </div>
   </div>
+</div>
 
   <!-- Produtos Segmentados por Campanha -->
 
