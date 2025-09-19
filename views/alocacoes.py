@@ -1167,45 +1167,52 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
     
     try:
         if supabase and uid:
-            # Buscar alocações confirmadas
-            alocacoes_resp = supabase.table("alocacoes").select("*, produto:produto_id(*)").eq("user_id", uid).execute()
-            
-            for aloc in alocacoes_resp.data or []:
-                percentual = aloc.get("percentual")
-                efetivada = aloc.get("efetivada")
-                produto = aloc.get("produto", {})
+            # Usar EXATAMENTE a mesma consulta da view principal
+            q = supabase.table("alocacoes").select(
+                "id, percentual, valor, cliente_id, produto_id, efetivada, "
+                "cliente:cliente_id ( id, nome, modelo, repasse ), "
+                "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
+            ).eq("user_id", uid).order("created_at", desc=False)
+
+            alocacoes_resp = q.execute()
+            current_app.logger.info(f"SIMULADOR DEBUG - Total alocações encontradas: {len(alocacoes_resp.data or [])}")
+
+            for r in alocacoes_resp.data or []:
+                valor = _to_float(r.get("valor"))
+                produto = r.get("produto") or {}
 
                 if not produto:
                     continue
 
                 produto_nome = produto.get("nome", "").strip()
-                valor = _to_float(aloc.get("valor"))
 
-                # Verificar se deve ser considerada para o cálculo
-                # Usar a mesma lógica de status da view principal
+                # Usar EXATAMENTE a mesma lógica de status da view principal
+                efetivada = r.get("efetivada", False)
+                percentual = _to_float(r.get("percentual", 0))
+
                 if efetivada:
-                    # Confirmado
-                    incluir = True
-                elif _to_float(percentual) >= 75:
-                    # Push enviado
-                    incluir = True
-                elif _to_float(percentual) >= 50:
-                    # Apresentado
-                    incluir = True
+                    status = "confirmado"
+                elif percentual >= 75:
+                    status = "push_enviado"
+                elif percentual >= 50:
+                    status = "apresentado"
                 else:
-                    # Mapeado - não incluir
-                    incluir = False
+                    status = "mapeado"
 
-                if incluir and valor > 0 and produto_nome:
-                    # Somar valor financeiro aplicado por produto
+                # Log cada alocação processada
+                current_app.logger.info(f"SIMULADOR DEBUG - {produto_nome}: R${valor:,.2f}, Status={status}, Percentual={percentual}, Efetivada={efetivada}")
+
+                # Incluir todas exceto "mapeado"
+                if status != "mapeado" and valor > 0 and produto_nome:
                     if produto_nome not in valor_aplicado_por_produto:
                         valor_aplicado_por_produto[produto_nome] = 0.0
                     valor_aplicado_por_produto[produto_nome] += valor
-                    
-        current_app.logger.info(f"SIMULADOR - Valor aplicado por produto: {valor_aplicado_por_produto}")
-        
+                    current_app.logger.info(f"SIMULADOR DEBUG - Incluído: {produto_nome} += R${valor:,.2f} (total: R${valor_aplicado_por_produto[produto_nome]:,.2f})")
+
+        current_app.logger.info(f"SIMULADOR DEBUG - RESULTADO FINAL - Valor aplicado por produto: {valor_aplicado_por_produto}")
+
     except Exception as e:
-        current_app.logger.warning(f"Erro ao calcular valor aplicado: {e}")
+        current_app.logger.exception(f"Erro ao calcular valor aplicado: {e}")
         valor_aplicado_por_produto = {}
 
     # Agrupar produtos por classe
@@ -1257,9 +1264,12 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
             
             # Valor já aplicado neste produto (confirmado)
             valor_ja_aplicado = valor_aplicado_por_produto.get(produto_nome, 0.0)
-            
+
             # Valor restante = Valor necessário - Valor já aplicado
             valor_restante = max(0, valor_necessario - valor_ja_aplicado)
+
+            # Log detalhado do cálculo
+            current_app.logger.info(f"CALC DEBUG - {produto_nome}: Necessário=R${valor_necessario:,.2f}, Aplicado=R${valor_ja_aplicado:,.2f}, Restante=R${valor_restante:,.2f}")
             
             # Receita que seria gerada se aplicasse o valor necessário
             receita_gerada = valor_necessario * (roa_pct / 100.0)
