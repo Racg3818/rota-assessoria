@@ -1584,6 +1584,8 @@ def index():
         receita_assessor_recorrente=_receita_assessor_recorrente(),
         # ROA
         roa_percentual=roa_percentual,
+        # NET Total
+        net_total_geral=sum(net_by_modelo.values()),
         # Histórico receita passiva para gráfico
         historico_receita_passiva=historico_receita_passiva,
     )

@@ -416,7 +416,7 @@ def index():
         try:
             uid = _uid()
             if uid:
-                q = supabase_produtos.table("produtos").select("nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
+                q = supabase_produtos.table("produtos").select("id, nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
                 resp = q.execute()
                 produtos_data = resp.data or []
         except Exception:
@@ -434,7 +434,7 @@ def index():
 
     # SIMULADOR DE META - Calcular alocações necessárias para atingir meta (incluindo bônus)
     receita_atual_com_bonus = total_rec_escritorio + total_bonus
-    simulador_meta = _calcular_simulador_meta(_uid(), receita_atual_com_bonus, produtos_data)
+    simulador_meta = _calcular_simulador_meta(_uid(), receita_atual_com_bonus, produtos_data, enriched)
 
     return render_template(
         "alocacoes/index.html",
@@ -649,9 +649,19 @@ def atualizar_status(aloc_id: str):
                 flash("Sessão inválida: não foi possível identificar o usuário.", "error")
                 return redirect(next_url)
             
+            # Verificar se a alocação existe e pertence ao usuário antes de atualizar
+            check_q = supabase.table("alocacoes").select("id,user_id").eq("id", aloc_id).eq("user_id", uid)
+            check_result = check_q.execute()
+
+            if not check_result.data:
+                if is_ajax:
+                    return jsonify({"success": False, "message": "Alocação não encontrada ou você não tem permissão para modificá-la"}), 404
+                flash("Alocação não encontrada ou você não tem permissão para modificá-la.", "error")
+                return redirect(next_url)
+
             # Mapear status para campos existentes (simulação)
             updates = {}
-            
+
             if new_status == "mapeado":
                 updates = {"percentual": 0, "efetivada": False}
             elif new_status == "apresentado":
@@ -660,9 +670,16 @@ def atualizar_status(aloc_id: str):
                 updates = {"percentual": 75, "efetivada": False}
             elif new_status == "confirmado":
                 updates = {"percentual": 100, "efetivada": True}
-            
+
             q = supabase.table("alocacoes").update(updates).eq("id", aloc_id).eq("user_id", uid)
             result = q.execute()
+
+            # Verificar se a atualização foi bem-sucedida
+            if not result.data:
+                if is_ajax:
+                    return jsonify({"success": False, "message": "Falha ao atualizar: alocação pode ter sido modificada por outro usuário"}), 409
+                flash("Falha ao atualizar: alocação pode ter sido modificada por outro usuário.", "error")
+                return redirect(next_url)
 
             # Invalidar cache após mudança de status
             _invalidar_cache_relacionado()
@@ -1086,7 +1103,7 @@ def _is_confirmed(percentual, efetivada):
     return False
 
 
-def _calcular_simulador_meta(uid, receita_atual, produtos_data):
+def _calcular_simulador_meta(uid, receita_atual, produtos_data, alocacoes_data=None):
     """Calcula quanto precisa alocar em cada produto para atingir as metas por classe"""
     from datetime import datetime
 
@@ -1121,16 +1138,19 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
     # Buscar metas por classe do mês atual
     metas_por_classe = {}
     total_metas = 0.0
-    
+
     try:
         if supabase and uid:
             resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
+            current_app.logger.info(f"DEBUG METAS: Encontradas {len(resp.data or [])} metas para {mes_atual}")
             for meta in resp.data or []:
                 classe = meta.get("classe", "")
                 meta_receita = _to_float(meta.get("meta_receita", 0))
+                current_app.logger.info(f"Meta encontrada: {classe} = R${meta_receita:,.2f}")
                 if meta_receita > 0:  # Só considerar metas > 0
                     metas_por_classe[classe] = meta_receita
                     total_metas += meta_receita
+            current_app.logger.info(f"Total de metas válidas: R${total_metas:,.2f}")
     except Exception as e:
         current_app.logger.exception("Erro ao buscar metas por classe")
     
@@ -1162,58 +1182,34 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
         current_app.logger.warning(f"Erro ao calcular receita passiva via dashboard: {e}")
         receita_passiva_mes = 0.0
     
-    # Calcular valor financeiro já aplicado por produto (confirmado)
+    # Calcular valor financeiro já aplicado por produto (APENAS confirmados)
+    # Usar os dados já processados em vez de fazer nova consulta
     valor_aplicado_por_produto = {}
-    
-    try:
-        if supabase and uid:
-            # Usar EXATAMENTE a mesma consulta da view principal
-            q = supabase.table("alocacoes").select(
-                "id, percentual, valor, cliente_id, produto_id, efetivada, "
-                "cliente:cliente_id ( id, nome, modelo, repasse ), "
-                "produto:produto_id ( id, nome, classe, roa_pct, em_campanha, campanha_mes )"
-            ).eq("user_id", uid).order("created_at", desc=False)
 
-            alocacoes_resp = q.execute()
-            current_app.logger.info(f"SIMULADOR DEBUG - Total alocações encontradas: {len(alocacoes_resp.data or [])}")
+    if alocacoes_data:
+        current_app.logger.info("=== DEBUG SIMULADOR (usando dados processados) ===")
+        current_app.logger.info(f"Total alocações recebidas: {len(alocacoes_data)}")
 
-            for r in alocacoes_resp.data or []:
-                valor = _to_float(r.get("valor"))
-                produto = r.get("produto") or {}
+        for i, alocacao in enumerate(alocacoes_data):
+            valor = _to_float(alocacao.get("valor", 0))
+            produto = alocacao.get("produto") or {}
+            produto_id = produto.get("id", "").strip()
+            produto_nome = produto.get("nome", "").strip()
+            status = alocacao.get("status", "mapeado")
 
-                if not produto:
-                    continue
+            current_app.logger.info(f"Alocação {i+1}: {produto_nome} (ID:{produto_id}) = R${valor:,.2f}, Status: {status}")
 
-                produto_nome = produto.get("nome", "").strip()
+            # Incluir APENAS aplicações confirmadas
+            if status == "confirmado" and valor > 0 and produto_id:
+                if produto_id not in valor_aplicado_por_produto:
+                    valor_aplicado_por_produto[produto_id] = 0.0
+                valor_aplicado_por_produto[produto_id] += valor
+                current_app.logger.info(f"  -> CONFIRMADA: Adicionando R${valor:,.2f} ao produto {produto_id}")
 
-                # Usar EXATAMENTE a mesma lógica de status da view principal
-                efetivada = r.get("efetivada", False)
-                percentual = _to_float(r.get("percentual", 0))
-
-                if efetivada:
-                    status = "confirmado"
-                elif percentual >= 75:
-                    status = "push_enviado"
-                elif percentual >= 50:
-                    status = "apresentado"
-                else:
-                    status = "mapeado"
-
-                # Incluir todas exceto "mapeado"
-                if status != "mapeado" and valor > 0 and produto_nome:
-                    if produto_nome not in valor_aplicado_por_produto:
-                        valor_aplicado_por_produto[produto_nome] = 0.0
-                    valor_aplicado_por_produto[produto_nome] += valor
-
-        # Log final simplificado (apenas se houver dados)
-        if valor_aplicado_por_produto:
-            current_app.logger.info(f"SIMULADOR - Encontrados valores aplicados: {valor_aplicado_por_produto}")
-        else:
-            current_app.logger.warning("SIMULADOR - NENHUM valor aplicado encontrado para qualquer produto!")
-
-    except Exception as e:
-        current_app.logger.exception(f"Erro ao calcular valor aplicado: {e}")
-        valor_aplicado_por_produto = {}
+        current_app.logger.info(f"Valores aplicados confirmados: {valor_aplicado_por_produto}")
+        current_app.logger.info("=== FIM DEBUG ===")
+    else:
+        current_app.logger.warning("SIMULADOR - Nenhum dado de alocações recebido")
 
     # Agrupar produtos por classe
     produtos_por_classe = {}
@@ -1253,23 +1249,24 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
         for produto in produtos_validos_classe:
             roa_pct = _to_float(produto.get("roa_pct", 0))
             produto_nome = produto.get("nome", "")
-            
+            produto_id = produto.get("id", "")
+
             if roa_pct <= 0:
                 continue
-            
+
             # Valor financeiro necessário para gerar a meta de receita deste produto
             # Receita Escritório = Valor Aplicado × ROA%
             # Logo: Valor Necessário = Meta Receita ÷ ROA%
             valor_necessario = meta_receita_por_produto / (roa_pct / 100.0)
-            
-            # Valor já aplicado neste produto (confirmado)
-            valor_ja_aplicado = valor_aplicado_por_produto.get(produto_nome, 0.0)
+
+            # Valor já aplicado neste produto (APENAS aplicações confirmadas)
+            valor_ja_aplicado = valor_aplicado_por_produto.get(produto_id, 0.0)
 
             # Valor restante = Valor necessário - Valor já aplicado
             valor_restante = max(0, valor_necessario - valor_ja_aplicado)
 
             # Log detalhado do cálculo
-            current_app.logger.info(f"CALC DEBUG - {produto_nome}: Necessário=R${valor_necessario:,.2f}, Aplicado=R${valor_ja_aplicado:,.2f}, Restante=R${valor_restante:,.2f}")
+            current_app.logger.info(f"CALC DEBUG - {produto_nome} (ID:{produto_id}): Necessário=R${valor_necessario:,.2f}, Aplicado=R${valor_ja_aplicado:,.2f}, Restante=R${valor_restante:,.2f}")
             
             # Receita que seria gerada se aplicasse o valor necessário
             receita_gerada = valor_necessario * (roa_pct / 100.0)
@@ -1294,6 +1291,15 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
     # Calcular receita faltante = Meta - Receita Ativa - Receita Passiva
     receita_total_esperada = receita_atual + receita_passiva_mes
     falta_receita = max(0, total_metas - receita_total_esperada)
+
+    # DEBUG: Log do cálculo "Falta Atingir"
+    current_app.logger.info(f"=== CÁLCULO FALTA ATINGIR ===")
+    current_app.logger.info(f"Total metas: R${total_metas:,.2f}")
+    current_app.logger.info(f"Receita atual (param): R${receita_atual:,.2f}")
+    current_app.logger.info(f"Receita passiva: R${receita_passiva_mes:,.2f}")
+    current_app.logger.info(f"Receita total esperada: R${receita_total_esperada:,.2f}")
+    current_app.logger.info(f"Falta atingir: R${falta_receita:,.2f}")
+    current_app.logger.info(f"=== FIM CÁLCULO =====")
     
     # Ordenar por classe e ROA
     produtos_sugestao.sort(key=lambda x: (x["classe"], -x["roa_pct"]))

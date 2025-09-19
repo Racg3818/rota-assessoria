@@ -140,7 +140,7 @@
           </svg>
         </div>
         <div class="text-xs text-blue-200 mb-1">Meta do Mês</div>
-        <div class="text-lg font-bold text-white">{{ simulador_meta.meta_mes|brl }}</div>
+        <div class="text-lg font-bold text-white" id="simulador-meta-mes">{{ simulador_meta.meta_mes|brl }}</div>
       </div>
 
       <!-- Receita Ativa -->
@@ -682,7 +682,19 @@ function drop(ev) {
       },
       body: formData
     }).then(response => {
-      console.log('Status response:', response.status);
+      console.log(`Status response: ${response.status} ${response.statusText}`);
+
+      // Verificar diferentes tipos de erro HTTP
+      if (response.status === 401) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      } else if (response.status === 403) {
+        throw new Error('Você não tem permissão para fazer esta operação.');
+      } else if (response.status === 404) {
+        throw new Error('Alocação não encontrada. A página pode estar desatualizada.');
+      } else if (response.status >= 500) {
+        throw new Error('Erro interno do servidor. Tente novamente em alguns minutos.');
+      }
+
       return response.json();
     }).then(data => {
       console.log('Response data:', data);
@@ -699,24 +711,34 @@ function drop(ev) {
         setTimeout(() => {
           updateReceitas();
         }, 500);
+
+        // Mostrar mensagem de sucesso discreta
+        if (data.message) {
+          console.log('✓ ' + data.message);
+        }
       } else {
-        // Erro - reverter posição
-        originalParent.appendChild(draggedElement);
-        draggedElement.setAttribute('data-status', originalParent.getAttribute('data-status'));
-        draggedElement.style.opacity = '1';
-        updateColumnCounts();
-        updateColumnTotals();
-        showErrorMessage(data.message || 'Erro ao mover alocação');
+        // Erro retornado pelo servidor - reverter posição
+        throw new Error(data.message || 'Erro desconhecido ao mover alocação');
       }
     }).catch(error => {
-      // Erro de conexão - reverter posição
-      console.error('Error updating status:', error);
+      // Qualquer erro - reverter posição e mostrar mensagem
+      console.error('Erro ao atualizar status:', error);
+
       originalParent.appendChild(draggedElement);
       draggedElement.setAttribute('data-status', originalParent.getAttribute('data-status'));
       draggedElement.style.opacity = '1';
       updateColumnCounts();
       updateColumnTotals();
-      showErrorMessage('Erro de conexão');
+
+      // Mostrar mensagem de erro específica
+      let errorMessage = 'Erro de conexão';
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.name === 'NetworkError' || !navigator.onLine) {
+        errorMessage = 'Sem conexão com a internet. Verifique sua rede.';
+      }
+
+      showErrorMessage(errorMessage);
     });
   }
   
@@ -859,7 +881,7 @@ function updateSimuladorReceita(novaReceitaAtiva) {
   }
 
   // Obter meta do mês e receita passiva (valores fixos do template)
-  const metaMesElement = document.querySelector('#simulador-receita-ativa').closest('.grid').querySelector('.text-blue-700');
+  const metaMesElement = document.getElementById('simulador-meta-mes');
   const receitaPassivaElement = document.getElementById('simulador-receita-passiva');
 
   let metaMes = 0;
@@ -868,27 +890,57 @@ function updateSimuladorReceita(novaReceitaAtiva) {
   if (metaMesElement) {
     const metaText = metaMesElement.textContent.replace(/[^\d,]/g, '').replace(',', '.');
     metaMes = parseFloat(metaText) || 0;
+    console.log('Meta do mês extraída:', metaMes, 'do texto:', metaMesElement.textContent);
+  } else {
+    console.warn('Elemento meta do mês não encontrado');
   }
 
   if (receitaPassivaElement) {
     const passivaText = receitaPassivaElement.textContent.replace(/[^\d,]/g, '').replace(',', '.');
     receitaPassiva = parseFloat(passivaText) || 0;
+    console.log('Receita passiva extraída:', receitaPassiva, 'do texto:', receitaPassivaElement.textContent);
+  } else {
+    console.warn('Elemento receita passiva não encontrado');
   }
 
-  // Calcular "falta atingir"
-  const receitaTotal = novaReceitaAtiva + receitaPassiva;
+  // Obter bônus ativo (precisa ser incluído no cálculo)
+  const bonusAtivoElement = document.getElementById('simulador-bonus-ativo');
+  let bonusAtivo = 0;
+
+  if (bonusAtivoElement) {
+    const bonusText = bonusAtivoElement.textContent.replace(/[^\d,]/g, '').replace(',', '.');
+    bonusAtivo = parseFloat(bonusText) || 0;
+    console.log('Bônus ativo extraído:', bonusAtivo, 'do texto:', bonusAtivoElement.textContent);
+  } else {
+    console.warn('Elemento bônus ativo não encontrado');
+  }
+
+  // Calcular "falta atingir" (incluindo bônus na receita total)
+  const receitaTotal = novaReceitaAtiva + receitaPassiva + bonusAtivo;
   const faltaReceita = Math.max(0, metaMes - receitaTotal);
+
+  console.log('=== CÁLCULO FALTA ATINGIR JS ===');
+  console.log('Meta do mês:', metaMes);
+  console.log('Receita ativa:', novaReceitaAtiva);
+  console.log('Receita passiva:', receitaPassiva);
+  console.log('Bônus ativo:', bonusAtivo);
+  console.log('Receita total (ativa + passiva + bônus):', receitaTotal);
+  console.log('Falta atingir calculado:', faltaReceita);
+  console.log('=== FIM CÁLCULO JS ===');
 
   // Atualizar "falta atingir"
   const faltaReceitaElement = document.getElementById('simulador-falta-receita');
   if (faltaReceitaElement) {
+    const valorAnterior = faltaReceitaElement.textContent;
     faltaReceitaElement.textContent = formatBRL(faltaReceita);
-    console.log('Falta atingir atualizada para:', formatBRL(faltaReceita));
+    console.log(`Falta atingir atualizada de "${valorAnterior}" para "${formatBRL(faltaReceita)}"`);
 
     // Atualizar cor baseada no status
     faltaReceitaElement.className = faltaReceita <= 0 ?
-      'text-xl font-bold text-green-700' :
-      'text-xl font-bold text-red-700';
+      'text-lg font-bold text-green-300' :
+      'text-lg font-bold text-red-300';
+  } else {
+    console.warn('Elemento falta-receita não encontrado');
   }
 
   // Atualizar tabela de produtos (calcular valores restantes por produto)
@@ -896,29 +948,27 @@ function updateSimuladorReceita(novaReceitaAtiva) {
 }
 
 function updateProdutosSimulador(receitaAtivaAtual) {
-  // Calcular quanto cada produto já contribuiu para a receita ativa
-  const produtoContribuicoes = {};
+  // Calcular quanto foi aplicado em cada produto (apenas confirmados)
+  const valorAplicadoPorProduto = {};
 
-  // Somar contribuições de todos os produtos confirmados
+  // Somar valores aplicados de todos os produtos confirmados
   document.querySelectorAll('.kanban-column[data-status="confirmado"] .kanban-item').forEach(item => {
     const produtoId = item.getAttribute('data-produto-id');
-    const receita = parseFloat(item.getAttribute('data-receita-escritorio')) || 0;
+    const valor = parseFloat(item.getAttribute('data-valor')) || 0;
 
     if (produtoId) {
-      produtoContribuicoes[produtoId] = (produtoContribuicoes[produtoId] || 0) + receita;
+      valorAplicadoPorProduto[produtoId] = (valorAplicadoPorProduto[produtoId] || 0) + valor;
     }
   });
-
-  console.log('Contribuições por produto:', produtoContribuicoes);
 
   // Atualizar valores restantes na tabela
   document.querySelectorAll('.simulador-valor-restante[data-produto-id]').forEach(element => {
     const produtoId = element.getAttribute('data-produto-id');
     const valorNecessario = parseFloat(element.getAttribute('data-valor-necessario')) || 0;
-    const contribuicaoAtual = produtoContribuicoes[produtoId] || 0;
+    const valorJaAplicado = valorAplicadoPorProduto[produtoId] || 0;
 
-    // Calcular valor restante (baseado na receita já gerada)
-    const valorRestante = Math.max(0, valorNecessario - contribuicaoAtual);
+    // Calcular valor restante (valor necessário - valor já aplicado confirmado)
+    const valorRestante = Math.max(0, valorNecessario - valorJaAplicado);
 
     // Atualizar texto
     element.textContent = new Intl.NumberFormat('pt-BR', {
@@ -934,17 +984,43 @@ function updateProdutosSimulador(receitaAtivaAtual) {
         '<span class="bg-green-100 text-green-800">✅ Batida</span>' :
         '<span class="bg-red-100 text-red-800">❌ Pendente</span>';
     }
-
-    console.log(`Produto ${produtoId}: Necessário ${valorNecessario}, Contribuição ${contribuicaoAtual}, Restante ${valorRestante}`);
   });
 }
 
 function showErrorMessage(message) {
+  // Evitar duplicação de mensagens
+  const existingAlert = document.querySelector('.kanban-error-alert');
+  if (existingAlert) {
+    existingAlert.remove();
+  }
+
   const alert = document.createElement('div');
-  alert.className = 'fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50';
-  alert.textContent = message;
+  alert.className = 'kanban-error-alert fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg z-50 max-w-sm';
+
+  // Criar conteúdo com ícone e botão de fechar
+  alert.innerHTML = `
+    <div class="flex items-start justify-between">
+      <div class="flex items-start">
+        <svg class="w-5 h-5 text-red-600 mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <div class="text-sm">${message}</div>
+      </div>
+      <button onclick="this.parentElement.parentElement.remove()" class="ml-2 text-red-600 hover:text-red-800 text-lg leading-none">&times;</button>
+    </div>
+  `;
+
   document.body.appendChild(alert);
-  setTimeout(() => document.body.removeChild(alert), 3000);
+
+  // Auto-remover após 5 segundos
+  setTimeout(() => {
+    if (alert.parentNode) {
+      alert.remove();
+    }
+  }, 5000);
+
+  // Log no console para debug
+  console.error('KANBAN ERROR:', message);
 }
 
 function handleDelete(event, form) {
@@ -1059,8 +1135,51 @@ function sortAllColumns() {
   });
 }
 
+// Verificação de compatibilidade do drag and drop
+function checkDragDropSupport() {
+  const testDiv = document.createElement('div');
+  const isSupported = ('draggable' in testDiv) && ('ondragstart' in testDiv) && ('ondrop' in testDiv);
+
+  if (!isSupported) {
+    console.warn('Drag and Drop não suportado neste navegador');
+    showErrorMessage('Seu navegador não suporta drag and drop. Use os botões de edição para mover alocações.');
+    return false;
+  }
+
+  console.log('Drag and Drop suportado ✓');
+  return true;
+}
+
+// Verificação de permissões e conectividade
+function checkKanbanPermissions() {
+  // Teste simples de conectividade
+  fetch('/alocacoes/', {
+    method: 'HEAD',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    }
+  }).then(response => {
+    if (response.status === 401 || response.status === 403) {
+      console.error('Permissões insuficientes para usar o kanban');
+      showErrorMessage('Você não tem permissão para mover alocações. Entre em contato com o administrador.');
+    } else if (response.status >= 500) {
+      console.error('Servidor indisponível');
+      showErrorMessage('Servidor temporariamente indisponível. Tente novamente em alguns minutos.');
+    } else {
+      console.log('Permissões kanban verificadas ✓');
+    }
+  }).catch(error => {
+    console.error('Erro ao verificar permissões:', error);
+    showErrorMessage('Erro de conectividade. Verifique sua conexão com a internet.');
+  });
+}
+
 // Add visual effects for drag and drop
 document.addEventListener('DOMContentLoaded', function() {
+  // Verificações iniciais
+  const dragDropSupported = checkDragDropSupport();
+  checkKanbanPermissions();
+
   // Ordenar colunas na inicialização
   sortAllColumns();
   // Inicializar totais das colunas
