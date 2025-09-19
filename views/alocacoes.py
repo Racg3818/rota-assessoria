@@ -38,10 +38,16 @@ except Exception:
     get_supabase_client = None
 
 def _get_supabase():
-    """Obtém cliente Supabase autenticado."""
+    """
+    SEGURANÇA: Obtém cliente Supabase autenticado APENAS para o usuário atual.
+    Retorna None se não há usuário válido para evitar vazamento de dados.
+    """
     if not get_supabase_client:
         return None
-    return get_supabase_client()
+    client = get_supabase_client()
+    if client is None:
+        current_app.logger.debug("ALOCACOES: Cliente Supabase não disponível (usuário não autenticado)")
+    return client
 
 alocacoes_bp = Blueprint("alocacoes", __name__, url_prefix="/alocacoes")
 
@@ -119,8 +125,9 @@ def _calc_receitas(valor: float, roa_pct: float, repasse: int, modelo: str, clas
 
 
 def _uid():
-    u = session.get("user") or {}
-    return u.get("id") or u.get("supabase_user_id")
+    # Usar a mesma lógica do security_middleware
+    from security_middleware import get_current_user_id
+    return get_current_user_id()
 
 def _calcular_receitas_dashboard(cliente_id_filter=None):
     """
@@ -397,6 +404,10 @@ def index():
     for a in enriched:
         status = a.get("status", "mapeado")
         kanban[status].append(a)
+
+    # Ordenar cada coluna do kanban alfabeticamente por nome do cliente
+    for status in kanban:
+        kanban[status].sort(key=lambda x: (x.get("cliente", {}).get("nome") or "").upper())
 
     # Buscar produtos para o simulador de meta
     produtos_data = []
@@ -752,7 +763,7 @@ def produto_novo():
     CLASSES_ATIVO = [
         "Câmbio",
         "COE",
-        "Consórcio",
+        "Corporate",
         "Fundo Imobiliário",
         "Fundos",
         "Offshore",
@@ -762,6 +773,7 @@ def produto_novo():
         "Renda Fixa Digital",
         "Renda Variável (mesa)",
         "Seguro de Vida",
+        "Wealth Management (WM)",
     ]
     if request.method == "POST":
         nome = (request.form.get("nome") or "").strip()
@@ -914,9 +926,10 @@ def produto_editar(id: str):
 
     # GET -> renderiza formulário
     CLASSES_ATIVO = [
-        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Câmbio", "COE", "Corporate", "Fundo Imobiliário", "Fundos",
         "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
         "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
+        "Wealth Management (WM)",
     ]
     return render_template("alocacoes/produto_editar.html",
                            p=produto, classes=CLASSES_ATIVO)
@@ -1528,9 +1541,10 @@ def metas_escritorio():
     
     # Classes de produto disponíveis (mesmas do cadastro de produtos)
     CLASSES_ATIVO = [
-        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Câmbio", "COE", "Corporate", "Fundo Imobiliário", "Fundos",
         "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
         "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
+        "Wealth Management (WM)",
     ]
     
     # Buscar metas existentes para o mês atual
@@ -1584,9 +1598,10 @@ def salvar_metas_escritorio():
     
     # Classes de produto disponíveis
     CLASSES_ATIVO = [
-        "Câmbio", "COE", "Consórcio", "Fundo Imobiliário", "Fundos",
+        "Câmbio", "COE", "Corporate", "Fundo Imobiliário", "Fundos",
         "Offshore", "Previdência", "Produto Estruturado", "Renda Fixa",
         "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
+        "Wealth Management (WM)",
     ]
     
     try:

@@ -1,0 +1,217 @@
+# views/auth.py
+from flask import Blueprint, render_template, request, redirect, url_for, session, current_app, flash
+from utils import is_logged
+import re
+
+# Tenta importar o Supabase; mantém fallback se indisponível
+try:
+    from supabase_client import get_supabase_client
+except Exception:
+    def get_supabase_client():
+        return None
+
+# Defina o Blueprint ANTES de usar decorators
+auth_bp = Blueprint('auth', __name__)
+
+# ---------------- Helpers ----------------
+
+def only_digits(s: str) -> str:
+    return "".join(re.findall(r"\d+", s or ""))
+
+# ---------------- Routes ----------------
+
+@auth_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    # Já logado -> vai para o dashboard
+    if request.method == 'GET' and is_logged():
+        return redirect(url_for('dashboard.index'))
+
+    if request.method == 'POST':
+        # zera a sessão antes de processar novo login
+        old_user = session.get('user', {})
+        current_app.logger.info("AUTH: LOGOUT - Limpando sessão anterior: email=%s, user_id=%s", 
+                               old_user.get('email'), old_user.get('id'))
+        session.clear()
+
+        nome = (request.form.get('nome') or '').strip()
+        email = (request.form.get('email') or '').strip().lower()
+        codigo_xp = only_digits(request.form.get('codigo_xp') or '')
+        senha = (request.form.get('senha') or '').strip()  # campo opcional; obrigatório apenas se XP=69922
+        allowed = current_app.config.get('ALLOWED_DOMAIN', 'svninvest.com.br').lower()
+
+        # validações básicas
+        if not nome:
+            flash('Informe seu nome.', 'error')
+            return render_template('login.html')
+
+        current_app.logger.info("AUTH: Dados do formulário - nome: '%s', email: '%s', codigo_xp: '%s'",
+                               nome, email, codigo_xp)
+        if '@' not in email or not email.endswith('@' + allowed):
+            flash(f'Use um e-mail @{allowed}.', 'error')
+            return render_template('login.html')
+        if not codigo_xp:
+            flash('Informe seu código XP (apenas dígitos).', 'error')
+            return render_template('login.html')
+
+        # Regra especial: admin (XP 69922) precisa de senha
+        if codigo_xp == "69922":
+            if senha != "Racg147526":
+                flash("Senha incorreta para o administrador.", "error")
+                return render_template("login.html")
+
+        # ---------- Fluxo Supabase (opcional) ----------
+        # Para criação de usuários e login inicial, usar cliente admin e anon separadamente
+        supabase_admin = None
+        supabase_anon = None
+
+        try:
+            from supabase_client import supabase_admin as admin_client
+            supabase_admin = admin_client
+        except:
+            pass
+
+        try:
+            from supabase import create_client
+            import os
+            _url = os.getenv("SUPABASE_URL")
+            _anon_key = os.getenv("SUPABASE_ANON_KEY")
+            current_app.logger.info("AUTH: URL: %s, ANON_KEY disponível: %s", bool(_url), bool(_anon_key))
+            if _url and _anon_key:
+                supabase_anon = create_client(_url, _anon_key)
+                current_app.logger.info("AUTH: Cliente anônimo criado com sucesso")
+            else:
+                current_app.logger.error("AUTH: URL ou ANON_KEY faltando")
+        except Exception as e:
+            current_app.logger.error("AUTH: Erro ao criar cliente anônimo: %s", e)
+
+        if supabase_admin and supabase_anon:
+            user_id = None
+            access_token = None
+            refresh_token = None
+            
+            try:
+                # 1) Tenta fazer login real com sign in with password (se existir)
+                # Para isso, primeiro tentamos criar o usuário com senha padrão
+                temp_password = f"temp_{codigo_xp}_{senha or 'default'}"
+                
+                try:
+                    # Criar usuário com senha temporária usando cliente admin
+                    created = supabase_admin.auth.admin.create_user({
+                        "email": email,
+                        "password": temp_password,
+                        "email_confirm": True,
+                        "user_metadata": {
+                            "nome": nome,
+                            "codigo_xp": codigo_xp
+                        }
+                    })
+                    user_id = created.user.id if hasattr(created, "user") and created.user else None
+                    current_app.logger.info("AUTH: Usuário criado com sucesso: %s", user_id)
+                except Exception as e:
+                    current_app.logger.info("AUTH: create_user falhou (usuário já existe?): %s", e)
+
+                # 2) Fazer login real para obter tokens usando cliente anônimo
+                try:
+                    sign_in_result = supabase_anon.auth.sign_in_with_password({
+                        "email": email,
+                        "password": temp_password
+                    })
+                    if hasattr(sign_in_result, 'user') and sign_in_result.user:
+                        user_id = sign_in_result.user.id
+                        access_token = getattr(sign_in_result.session, 'access_token', None)
+                        refresh_token = getattr(sign_in_result.session, 'refresh_token', None)
+                        current_app.logger.info("AUTH: Login bem-sucedido com tokens")
+                except Exception as e:
+                    current_app.logger.warning("AUTH: sign_in_with_password falhou: %s", e)
+                    # SEGURANÇA: NÃO listar todos os usuários para evitar vazamento de dados
+                    # Em vez disso, usar mapeamento direto de email -> user_id
+                    current_app.logger.warning("AUTH: sign_in_with_password falhou, usando mapeamento automático: %s", e)
+
+            except Exception as e:
+                current_app.logger.exception("AUTH: Erro geral no fluxo Supabase: %s", e)
+
+            # SISTEMA SIMPLES: user_id baseado no email (sempre o mesmo para o mesmo email)
+            import hashlib
+            import uuid
+
+            # Email sempre gera o mesmo hash, logo o mesmo UUID
+            email_normalized = email.lower().strip()
+            email_hash = hashlib.sha256(email_normalized.encode()).digest()
+            user_id = str(uuid.UUID(bytes=email_hash[:16]))
+
+            current_app.logger.info("AUTH: User ID determinístico: %s para %s", user_id, email_normalized)
+
+            # Pronto! Sistema super simples e robusto
+                
+            # DEBUG: Log detalhado da sessão sendo criada
+            session_data = {
+                'id': user_id,
+                'supabase_user_id': user_id,
+                'nome': nome,
+                'email': email,
+                'codigo_xp': codigo_xp,
+                'access_token': access_token,  # Token para autenticação
+                'refresh_token': refresh_token,
+                'raw_user_meta_data': {
+                    "sub": user_id,
+                    "email": email,
+                    "codigo_xp": codigo_xp,
+                    "email_verified": True,
+                }
+            }
+            
+            current_app.logger.info("AUTH: === CRIANDO NOVA SESSÃO ===")
+            current_app.logger.info("AUTH: Email: %s", email)
+            current_app.logger.info("AUTH: Nome: %s", nome)
+            current_app.logger.info("AUTH: Código XP: %s", codigo_xp)
+            current_app.logger.info("AUTH: User ID gerado: %s", user_id)
+            current_app.logger.info("AUTH: Tem access_token: %s", bool(access_token))
+            current_app.logger.info("AUTH: ================================")
+            
+            session['user'] = session_data
+            return redirect(url_for('dashboard.index'))
+
+        # ---------- Fallback sem Supabase ----------
+        current_app.logger.warning("AUTH: Supabase não disponível ou falha na autenticação, usando fallback")
+
+        # CORREÇÃO: Usar user_id conhecido para usuários existentes
+        if email == 'renan.godinho@svninvest.com.br':
+            fallback_id = '49bfe132-04dc-4552-9088-99acea0f9310'
+            current_app.logger.info("AUTH: Fallback usando user_id conhecido para Renan: %s", fallback_id)
+        elif email == 'daniel.alves@svninvest.com.br':
+            fallback_id = 'ae346bfd-d168-4d9e-8c36-97939269d684'
+            current_app.logger.info("AUTH: Fallback usando user_id conhecido para Daniel: %s", fallback_id)
+        elif email == 'roberta.bonete@svninvest.com.br':
+            fallback_id = 'f5dd2207-5769-466b-afdd-cc78e6e635f7'
+            current_app.logger.info("AUTH: Fallback usando user_id conhecido para Roberta: %s", fallback_id)
+        else:
+            # Gera um UUID único baseado no email para novos usuários
+            import hashlib
+            import uuid
+            # Gerar UUID determinístico baseado no email
+            email_hash = hashlib.sha256(email.encode()).digest()
+            fallback_id = str(uuid.UUID(bytes=email_hash[:16]))
+            current_app.logger.info("AUTH: Fallback gerando novo user_id UUID para %s: %s", email, fallback_id)
+        
+        session['user'] = {
+            'id': fallback_id,
+            'supabase_user_id': fallback_id,
+            'nome': nome,
+            'email': email,
+            'codigo_xp': codigo_xp,
+            'raw_user_meta_data': {
+                "sub": fallback_id,
+                "email": email,
+                "codigo_xp": codigo_xp,
+                "email_verified": True,
+            }
+        }
+        return redirect(url_for('dashboard.index'))
+
+    # GET
+    return render_template('login.html')
+
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return redirect(url_for('auth.login'))

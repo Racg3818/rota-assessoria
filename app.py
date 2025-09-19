@@ -9,6 +9,8 @@ from views.clientes import clientes_bp
 from views.importar import importar_bp
 from views.finadvisor import fin_bp
 from views.alocacoes import alocacoes_bp
+# 🚨 SEGURANÇA CRÍTICA: Middleware de proteção contra vazamento de dados
+from security_middleware import init_security_middleware
 
 # Silencia o probe do Chrome/DevTools
 from flask import Blueprint
@@ -43,6 +45,9 @@ def create_app():
 
     # Cache
     init_cache(app)
+
+    # 🚨 SEGURANÇA CRÍTICA: Inicializar middleware de proteção
+    init_security_middleware(app)
 
     # Blueprints
     app.register_blueprint(wellknown_bp)

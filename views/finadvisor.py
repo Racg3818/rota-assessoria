@@ -12,18 +12,25 @@ except Exception:
     get_supabase_client = None
 
 def _get_supabase():
-    """Obtém cliente Supabase autenticado."""
+    """
+    SEGURANÇA: Obtém cliente Supabase autenticado APENAS para o usuário atual.
+    Retorna None se não há usuário válido para evitar vazamento de dados.
+    """
     if not get_supabase_client:
         return None
-    return get_supabase_client()
+    client = get_supabase_client()
+    if client is None:
+        current_app.logger.debug("FINADVISOR: Cliente Supabase não disponível (usuário não autenticado)")
+    return client
 
 fin_bp = Blueprint("finadvisor", __name__, url_prefix="/finadvisor")
 
 # --------------------------- Helpers ---------------------------
 
 def _uid():
-    u = session.get("user") or {}
-    return u.get("id") or u.get("supabase_user_id")
+    # Usar a mesma lógica do security_middleware
+    from security_middleware import get_current_user_id
+    return get_current_user_id()
 
 def _raw_meta():
     """Une diferentes fontes de metadata dentro de session['user']."""

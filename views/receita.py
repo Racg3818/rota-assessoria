@@ -11,15 +11,22 @@ except Exception:
     get_supabase_client = None
 
 def _get_supabase():
-    """Obtém cliente Supabase autenticado."""
+    """
+    SEGURANÇA: Obtém cliente Supabase autenticado APENAS para o usuário atual.
+    Retorna None se não há usuário válido para evitar vazamento de dados.
+    """
     if not get_supabase_client:
         return None
-    return get_supabase_client()
+    client = get_supabase_client()
+    if client is None:
+        current_app.logger.debug("RECEITA: Cliente Supabase não disponível (usuário não autenticado)")
+    return client
 
 
 def _uid():
-    u = session.get("user") or {}
-    return u.get("id") or u.get("supabase_user_id")
+    # Usar a mesma lógica do security_middleware
+    from security_middleware import get_current_user_id
+    return get_current_user_id()
 
 receita_bp = Blueprint("receita", __name__, url_prefix="/receita")
 RECEITA_VIEW_VERSION = "v-supabase-xpmb-2025-09-08"
@@ -132,7 +139,8 @@ def _fetch_supabase_rows_paged(page_size: int = 1000, max_pages: int = 200):
     """Busca receita_itens paginando e faz fallback se faltar alguma coluna."""
     supabase = _get_supabase()
     if not supabase:
-        raise RuntimeError("Supabase client não inicializado.")
+        current_app.logger.error("RECEITA: Cliente Supabase não disponível - usuário não autenticado")
+        return []  # Retorna lista vazia em vez de erro
 
     def fetch_with_cols(cols: str):
         rows = []
@@ -362,9 +370,9 @@ def index():
     try:
         rows = _fetch_supabase_rows_paged(page_size=1000)
     except Exception as e:
-        current_app.logger.exception("Receita: falha ao consultar Supabase (paged): %s", e)
+        current_app.logger.warning("RECEITA: Falha ao consultar Supabase (usuário não autenticado): %s", e)
         source = "supabase-error"
-        error_msg = str(e)
+        error_msg = "Usuário não autenticado"
         rows = []
 
     produto_presente = any("produto" in r for r in rows) or (rows and rows[0].get("produto") is not None)

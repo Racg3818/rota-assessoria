@@ -52,7 +52,7 @@ class Produto(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.String(255), nullable=False)  # ID do usuário proprietário
     nome = db.Column(db.String(255), nullable=False)
-    classe = db.Column(db.String(50), nullable=False)  # RF, Fundos, Previdência, RV(mesa), Estruturado, COE, FII, Offshore, Seguro, Consórcio
+    classe = db.Column(db.String(50), nullable=False)  # RF, Fundos, Previdência, RV(mesa), Estruturado, COE, FII, Offshore, Seguro, Corporate, WM
     roa_pct = db.Column(db.Float, nullable=False, default=0.0)  # ex: 1.2 => 1.2%
     em_campanha = db.Column(db.Boolean, default=False)
     campanha_mes = db.Column(db.String(7))  # 'YYYY-MM' quando em campanha (opcional)

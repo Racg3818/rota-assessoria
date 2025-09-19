@@ -47,24 +47,26 @@ def get_supabase_client():
         current_app.logger.debug("SUPABASE_CLIENT: Acesso negado - sem user_id válido na sessão")
         return None
 
+    if not _anon_key:
+        current_app.logger.debug("SUPABASE_CLIENT: ANON_KEY não configurada")
+        return None
+
     try:
-        # Se temos token válido, usar cliente com ANON_KEY + token
-        if access_token and _anon_key:
-            client = create_client(_url, _anon_key)
+        # Cliente base com chave anônima
+        client = create_client(_url, _anon_key)
+
+        # Se temos token, usar autenticação por token
+        if access_token:
             client.rest.headers = {
                 **client.rest.headers,
                 "Authorization": f"Bearer {access_token}"
             }
             current_app.logger.info("SUPABASE_CLIENT: Cliente autenticado criado com token para user_id: %s", user_id)
-            return client
-
-        # Sem token válido: usar SERVICE_ROLE_KEY com RLS desabilitado
-        elif _key:
-            current_app.logger.info("SUPABASE_CLIENT: Usando SERVICE_ROLE para user_id: %s (sem token)", user_id)
-            return supabase_admin
         else:
-            current_app.logger.error("SUPABASE_CLIENT: Nenhuma chave disponível")
-            return None
+            # Sem token: RLS funcionará baseado na configuração
+            current_app.logger.info("SUPABASE_CLIENT: Cliente criado sem token, RLS ativo para user_id: %s", user_id)
+
+        return client
 
     except Exception as e:
         current_app.logger.error("SUPABASE_CLIENT: Falha ao criar cliente: %s", e)

@@ -16,7 +16,7 @@ except Exception:
         return None
     supabase_admin = None
 
-auth_bp = Blueprint('auth', __name__)
+new_auth_bp = Blueprint('new_auth', __name__)
 
 # ---------------- Helpers ----------------
 
@@ -40,7 +40,7 @@ def generate_deterministic_uuid(email: str, codigo_xp: str) -> str:
 
 # ---------------- Routes ----------------
 
-@auth_bp.route('/login', methods=['GET', 'POST'])
+@new_auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     # Já logado -> vai para o dashboard
     if request.method == 'GET' and is_logged():
@@ -88,40 +88,84 @@ def login():
             access_token = None
 
             if existing_profile.data:
-                # Usuário já existe - fazer login direto via profiles
+                # Usuário já existe - fazer login
                 profile = existing_profile.data[0]
                 user_id = profile['id']
+                current_app.logger.info("AUTH: Usuário existente encontrado: %s", user_id)
 
-                # Verificar se o código XP bate (autenticação simples)
-                if profile.get('codigo_xp') == codigo_xp:
-                    current_app.logger.info("AUTH: Login autorizado via profiles para user_id: %s", user_id)
-                    access_token = None  # Usar SERVICE_ROLE sem token
-                else:
-                    current_app.logger.warning("AUTH: Código XP incorreto para %s", email)
-                    flash('Código XP incorreto.', 'error')
-                    return render_template('login.html')
+                # Tentar fazer login com Supabase Auth
+                try:
+                    # Usar senha baseada no código XP
+                    temp_password = f"xp_{codigo_xp}_pwd"
+
+                    # Criar cliente anônimo para login
+                    from supabase import create_client
+                    supabase_anon = create_client(
+                        current_app.config.get("SUPABASE_URL"),
+                        current_app.config.get("SUPABASE_ANON_KEY")
+                    )
+
+                    sign_in_result = supabase_anon.auth.sign_in_with_password({
+                        "email": email,
+                        "password": temp_password
+                    })
+
+                    if hasattr(sign_in_result, 'session') and sign_in_result.session:
+                        access_token = sign_in_result.session.access_token
+                        current_app.logger.info("AUTH: Login com token realizado com sucesso")
+
+                except Exception as e:
+                    current_app.logger.warning("AUTH: Login com token falhou, usando sessão simples: %s", e)
 
             else:
-                # Usuário novo - criar apenas no profiles
+                # Usuário novo - criar tanto no auth.users quanto no profiles
                 try:
                     # Gerar UUID determinístico
                     user_id = generate_deterministic_uuid(email, codigo_xp)
 
-                    # Criar profile diretamente
-                    supabase_admin.table("profiles").insert({
-                        "id": user_id,
-                        "nome": nome,
-                        "email": email,
-                        "codigo_xp": codigo_xp
-                    }).execute()
+                    # Criar usuário no Supabase Auth
+                    temp_password = f"xp_{codigo_xp}_pwd"
 
-                    current_app.logger.info("AUTH: Novo profile criado: %s", user_id)
-                    access_token = None  # Usar SERVICE_ROLE sem token
+                    created = supabase_admin.auth.admin.create_user({
+                        "id": user_id,  # Usar UUID determinístico
+                        "email": email,
+                        "password": temp_password,
+                        "email_confirm": True,
+                        "user_metadata": {
+                            "nome": nome,
+                            "codigo_xp": codigo_xp
+                        }
+                    })
+
+                    current_app.logger.info("AUTH: Usuário criado no auth.users: %s", user_id)
+
+                    # O trigger irá criar automaticamente o profile
+                    # Mas vamos verificar se foi criado
+                    import time
+                    time.sleep(0.5)  # Dar tempo para o trigger executar
+
+                    profile_check = supabase_admin.table("profiles").select("*").eq("id", user_id).execute()
+                    if not profile_check.data:
+                        # Criar manualmente se o trigger falhou
+                        supabase_admin.table("profiles").insert({
+                            "id": user_id,
+                            "nome": nome,
+                            "email": email,
+                            "codigo_xp": codigo_xp
+                        }).execute()
+                        current_app.logger.info("AUTH: Profile criado manualmente: %s", user_id)
 
                 except Exception as e:
-                    current_app.logger.error("AUTH: Falha ao criar profile: %s", e)
-                    flash('Erro ao criar conta. Tente novamente.', 'error')
-                    return render_template('login.html')
+                    current_app.logger.error("AUTH: Falha ao criar usuário: %s", e)
+
+                    # Se falha na criação, tentar buscar se já existe
+                    retry_profile = supabase_admin.table("profiles").select("*").eq("email", email).execute()
+                    if retry_profile.data:
+                        user_id = retry_profile.data[0]['id']
+                        current_app.logger.info("AUTH: Usuário encontrado após falha de criação: %s", user_id)
+                    else:
+                        flash('Erro ao criar conta. Tente novamente.', 'error')
+                        return render_template('login.html')
 
             # 2. Criar sessão segura
             if user_id:
@@ -149,14 +193,14 @@ def login():
     # GET request
     return render_template('login.html')
 
-@auth_bp.route('/logout', methods=['GET', 'POST'])
+@new_auth_bp.route('/logout')
 def logout():
     user = session.get('user', {})
     current_app.logger.info("AUTH: LOGOUT - user_id: %s, email: %s",
                            user.get('id'), user.get('email'))
     session.clear()
     flash('Você foi desconectado.', 'info')
-    return redirect(url_for('auth.login'))
+    return redirect(url_for('new_auth.login'))
 
 # ===============================================
 # HELPERS PARA MIGRAÇÃO

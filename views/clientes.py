@@ -19,10 +19,16 @@ except Exception as e:
     logging.getLogger(__name__).warning("Supabase indisponível na carga do módulo: %s", e)
 
 def _get_supabase():
-    """Obtém cliente Supabase autenticado."""
+    """
+    SEGURANÇA: Obtém cliente Supabase autenticado APENAS para o usuário atual.
+    Retorna None se não há usuário válido para evitar vazamento de dados.
+    """
     if not get_supabase_client:
         return None
-    return get_supabase_client()
+    client = get_supabase_client()
+    if client is None:
+        current_app.logger.debug("CLIENTES: Cliente Supabase não disponível (usuário não autenticado)")
+    return client
 
 clientes_bp = Blueprint('clientes', __name__, url_prefix='/clientes')
 
@@ -99,8 +105,9 @@ def _brl(value):
 clientes_bp.add_app_template_filter(_brl, name="brl")
 
 def _uid():
-    u = session.get("user") or {}
-    return u.get("id") or u.get("supabase_user_id")
+    # Usar a mesma lógica do security_middleware
+    from security_middleware import get_current_user_id
+    return get_current_user_id()
 
 # ----------------- Views -----------------
 @clientes_bp.route('/')
@@ -109,7 +116,12 @@ def index():
     supabase = _get_supabase()
     if not supabase:
         flash("Supabase indisponível.", "warning")
-        return render_template('clientes/index.html', clientes=[], filtros={"q": "", "modelo": ""})
+        return render_template('clientes/index.html',
+                             clientes=[],
+                             filtros={"q": "", "modelo": ""},
+                             stats_by_model={},
+                             modelos_ordenados=[],
+                             total_clientes=0)
 
     # ── filtros vindos da URL ───────────────────────────────────────────────
     q_txt = (request.args.get('q') or '').strip()              # código XP/MB
@@ -168,12 +180,36 @@ def index():
             })
 
         clientes.sort(key=lambda x: (x["nome"] or "").upper())
-        return render_template('clientes/index.html', clientes=clientes, filtros={"q": q_txt, "modelo": modelo_filter})
+
+        # Calcular estatísticas por modelo
+        stats_by_model = {}
+        total_clientes = len(clientes)
+
+        for cliente in clientes:
+            modelo = cliente.get("modelo", "N/A")
+            if modelo not in stats_by_model:
+                stats_by_model[modelo] = 0
+            stats_by_model[modelo] += 1
+
+        # Ordenar modelos para exibição consistente
+        modelos_ordenados = sorted(stats_by_model.keys())
+
+        return render_template('clientes/index.html',
+                             clientes=clientes,
+                             filtros={"q": q_txt, "modelo": modelo_filter},
+                             stats_by_model=stats_by_model,
+                             modelos_ordenados=modelos_ordenados,
+                             total_clientes=total_clientes)
 
     except Exception:
         current_app.logger.exception("Falha ao listar clientes do Supabase")
         flash("Falha ao listar clientes do Supabase.", "warning")
-        return render_template('clientes/index.html', clientes=[], filtros={"q": q_txt, "modelo": modelo_filter})
+        return render_template('clientes/index.html',
+                             clientes=[],
+                             filtros={"q": q_txt, "modelo": modelo_filter},
+                             stats_by_model={},
+                             modelos_ordenados=[],
+                             total_clientes=0)
 
 @clientes_bp.route('/novo', methods=['GET', 'POST'])
 @login_required

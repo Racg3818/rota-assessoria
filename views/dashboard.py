@@ -19,33 +19,35 @@ dash_bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 
 
 def _get_supabase():
-    """Obtém cliente Supabase autenticado."""
+    """
+    SEGURANÇA: Obtém cliente Supabase autenticado APENAS para o usuário atual.
+    Retorna None se não há usuário válido para evitar vazamento de dados.
+    """
     if not get_supabase_client:
         return None
-    return get_supabase_client()
+    client = get_supabase_client()
+    if client is None:
+        current_app.logger.debug("DASHBOARD: Cliente Supabase não disponível (usuário não autenticado)")
+    return client
 
 
 # =============== helpers de sessão/consulta ===============
 def _current_user_id() -> str | None:
     """
     Retorna o user_id UUID válido do Supabase.
-    Com RLS ativo, o user_id deve ser um UUID válido da tabela auth.users.
-
     SEGURANÇA: Sempre retorna apenas o user_id da sessão atual. NUNCA acessa dados de outros usuários.
     """
-    u = session.get("user") or {}
+    # Usar a mesma lógica do security_middleware
+    from security_middleware import get_current_user_id
+    user_id = get_current_user_id()
 
-    # PRIORIDADE 1: user_id do Supabase (UUID válido)
-    user_id = u.get("id") or u.get("supabase_user_id")
-    if user_id and len(user_id) > 10:  # UUID válido tem pelo menos 32 chars
+    if user_id:
         current_app.logger.info("USERID_SECURITY: User ID da sessão: %s", user_id)
-
-        # SEGURANÇA: Sempre retornar apenas o user_id da sessão atual
-        # Mesmo que não tenha dados, é responsabilidade do usuário criar/configurar seus dados
         return user_id
 
-    # Se não temos UUID válido, isso significa que a autenticação não funcionou
-    current_app.logger.error("USERID_SECURITY: Sem user_id UUID válido na sessão! Sessão: %s", u.keys())
+    # Se não temos user_id válido, isso significa que a autenticação não funcionou
+    u = session.get("user") or {}
+    current_app.logger.error("USERID_SECURITY: Sem user_id UUID válido na sessão! Sessão: %s", list(u.keys()))
     return None
 
 
@@ -431,6 +433,7 @@ def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
 
 
 def _meta_do_mes():
+    # SEGURANÇA: Usar APENAS cliente autenticado para evitar vazamentos
     supabase = _get_supabase()
     mes = datetime.today().strftime("%Y-%m")
     current_app.logger.info("META_DEBUG: === INICIANDO BUSCA PARA MES=%s ===", mes)
@@ -441,21 +444,20 @@ def _meta_do_mes():
                            user_session.get("email"), user_session.get("nome"), user_session.get("codigo_xp"))
 
     if not supabase:
-        current_app.logger.warning("META_DEBUG: Supabase não disponível")
+        current_app.logger.error("META_DEBUG: ACESSO NEGADO - Cliente Supabase autenticado não disponível")
         return mes, 0.0
 
     uid = _current_user_id()
     current_app.logger.info("META_DEBUG: user_id obtido da função _current_user_id(): %s", uid)
-    
+
     if not uid:
-        current_app.logger.error("META_DEBUG: Sem user_id válido na sessão!")
+        current_app.logger.error("META_DEBUG: ACESSO NEGADO - Sem user_id válido na sessão!")
         return mes, 0.0
 
     try:
-        # SEMPRE usar cliente administrativo com filtro EXPLÍCITO por user_id
-        # Não confiar no RLS para evitar vazamentos
-        current_app.logger.info("META_DEBUG: Usando cliente admin com filtro EXPLÍCITO por user_id=%s", uid)
-        
+        # SEGURANÇA: Usar APENAS cliente autenticado com RLS ativo
+        current_app.logger.info("META_DEBUG: Usando cliente autenticado com RLS para user_id=%s", uid)
+
         res = (
             supabase.table("metas_mensais")
             .select("mes,meta_receita,user_id")
@@ -1302,8 +1304,13 @@ def debug():
         metas_info["metas_admin_todas"] = "CONSULTA_REMOVIDA_POR_SEGURANCA"
         
         if uid:
-            res_admin_filter = supabase.table("metas_mensais").select("*").eq("user_id", uid).execute()
-            metas_info["metas_admin_filtradas"] = list(res_admin_filter.data or [])
+            # SEGURANÇA: Usar cliente autenticado em vez de admin
+            auth_client = _get_supabase()
+            if auth_client:
+                res_auth_filter = auth_client.table("metas_mensais").select("*").eq("user_id", uid).execute()
+                metas_info["metas_auth_filtradas"] = list(res_auth_filter.data or [])
+            else:
+                metas_info["metas_auth_filtradas"] = "ACESSO_NEGADO_SEM_CLIENTE_AUTENTICADO"
             
     except Exception as e:
         metas_info["metas_error"] = str(e)

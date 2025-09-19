@@ -29,18 +29,6 @@
                 class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
           Ver Tabela
         </button>
-        <a href="{{ url_for('alocacoes.bonus') }}"
-           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
-          🎯 Bônus/Missões
-        </a>
-        <a href="{{ url_for('alocacoes.metas_escritorio') }}"
-           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
-          📊 Metas Escritório
-        </a>
-        <a href="{{ url_for('alocacoes.produtos') }}"
-           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
-          🧩 Produtos
-        </a>
         <a href="{{ url_for('alocacoes.novo') }}"
            class="px-4 py-2 bg-white text-emerald-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
           ➕ Nova Alocação
@@ -447,6 +435,7 @@
              data-valor="{{ item.valor or 0 }}"
              data-receita-escritorio="{{ item.receita_escritorio or 0 }}"
              data-produto-id="{{ item.produto.id if item.produto else '' }}"
+             data-cliente-nome="{{ item.cliente.nome if item.cliente else '' }}"
              style="transition: opacity 0.3s ease, background-color 0.5s ease;">
           <div class="text-sm font-medium mb-1">{{ item.cliente.nome }}</div>
           <div class="text-xs text-gray-600 mb-2">{{ item.produto.nome }}</div>
@@ -625,6 +614,23 @@ function drag(ev) {
   ev.dataTransfer.setData("text", ev.target.getAttribute('data-id'));
 }
 
+// Função para ordenar cards alfabeticamente por nome do cliente
+function sortColumnCards(itemsContainer) {
+  const cards = Array.from(itemsContainer.querySelectorAll('.kanban-item'));
+
+  // Ordenar por nome do cliente (alfabeticamente)
+  cards.sort((a, b) => {
+    const nomeA = (a.getAttribute('data-cliente-nome') || '').toUpperCase();
+    const nomeB = (b.getAttribute('data-cliente-nome') || '').toUpperCase();
+    return nomeA.localeCompare(nomeB);
+  });
+
+  // Reorganizar os cards no DOM
+  cards.forEach(card => {
+    itemsContainer.appendChild(card);
+  });
+}
+
 function drop(ev) {
   ev.preventDefault();
 
@@ -654,6 +660,9 @@ function drop(ev) {
     // 1. Mover visualmente IMEDIATAMENTE (otimistic update)
     draggedElement.setAttribute('data-status', newStatus);
     itemsContainer.appendChild(draggedElement);
+
+    // 1.1. Ordenar cards alfabeticamente na coluna de destino
+    sortColumnCards(itemsContainer);
 
     console.log('Card movido - atualizando contadores e totais...');
     updateColumnCounts();
@@ -1039,8 +1048,23 @@ function updateChart(receitas_por_produto) {
   window.receitaChart.update('none'); // Sem animação para atualização rápida
 }
 
+// Ordenar todas as colunas do kanban ao carregar a página
+function sortAllColumns() {
+  const columns = document.querySelectorAll('.kanban-column[data-status]');
+  columns.forEach(column => {
+    const itemsContainer = column.querySelector('[data-items-container]');
+    if (itemsContainer) {
+      sortColumnCards(itemsContainer);
+    }
+  });
+}
+
 // Add visual effects for drag and drop
 document.addEventListener('DOMContentLoaded', function() {
+  // Ordenar colunas na inicialização
+  sortAllColumns();
+  // Inicializar totais das colunas
+  updateColumnTotals();
   // Melhorar efeitos visuais para as colunas inteiras do kanban
   const dropColumns = document.querySelectorAll('.kanban-column[data-status]');
 
