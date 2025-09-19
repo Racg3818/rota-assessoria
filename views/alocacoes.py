@@ -1199,17 +1199,17 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
                 else:
                     status = "mapeado"
 
-                # Log cada alocação processada
-                current_app.logger.info(f"SIMULADOR DEBUG - {produto_nome}: R${valor:,.2f}, Status={status}, Percentual={percentual}, Efetivada={efetivada}")
-
                 # Incluir todas exceto "mapeado"
                 if status != "mapeado" and valor > 0 and produto_nome:
                     if produto_nome not in valor_aplicado_por_produto:
                         valor_aplicado_por_produto[produto_nome] = 0.0
                     valor_aplicado_por_produto[produto_nome] += valor
-                    current_app.logger.info(f"SIMULADOR DEBUG - Incluído: {produto_nome} += R${valor:,.2f} (total: R${valor_aplicado_por_produto[produto_nome]:,.2f})")
 
-        current_app.logger.info(f"SIMULADOR DEBUG - RESULTADO FINAL - Valor aplicado por produto: {valor_aplicado_por_produto}")
+        # Log final simplificado (apenas se houver dados)
+        if valor_aplicado_por_produto:
+            current_app.logger.info(f"SIMULADOR - Encontrados valores aplicados: {valor_aplicado_por_produto}")
+        else:
+            current_app.logger.warning("SIMULADOR - NENHUM valor aplicado encontrado para qualquer produto!")
 
     except Exception as e:
         current_app.logger.exception(f"Erro ao calcular valor aplicado: {e}")
@@ -1275,6 +1275,7 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
             receita_gerada = valor_necessario * (roa_pct / 100.0)
 
             produto_info = {
+                "id": produto.get("id"),  # Incluir ID do produto para o template
                 "nome": produto_nome,
                 "classe": classe,
                 "roa_pct": roa_pct,
