@@ -34,6 +34,7 @@
         <select name="origem" class="w-full border rounded px-3 py-2" required>
           <option value="XP" {% if bonus.get('origem', 'XP') == 'XP' %}selected{% endif %}>XP</option>
           <option value="SVN" {% if bonus.get('origem', 'XP') == 'SVN' %}selected{% endif %}>SVN</option>
+          <option value="MB" {% if bonus.get('origem', 'XP') == 'MB' %}selected{% endif %}>MB</option>
         </select>
       </div>
 

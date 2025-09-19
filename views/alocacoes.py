@@ -1327,7 +1327,7 @@ def bonus():
             flash("Nome da missão é obrigatório.", "error")
             return redirect(url_for("alocacoes.bonus"))
 
-        if origem not in ["XP", "SVN"]:
+        if origem not in ["XP", "SVN", "MB"]:
             origem = "XP"
 
         supabase = _get_supabase()
@@ -1481,7 +1481,7 @@ def editar_bonus(bonus_id: str):
             flash("Nome da missão é obrigatório.", "error")
             return redirect(url_for("alocacoes.editar_bonus", bonus_id=bonus_id))
 
-        if origem not in ["XP", "SVN"]:
+        if origem not in ["XP", "SVN", "MB"]:
             origem = "XP"
 
         try:
