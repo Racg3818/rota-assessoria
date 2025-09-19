@@ -1078,6 +1078,11 @@ def _is_confirmed(percentual, efetivada):
     """Verifica se a alocação está confirmada baseada na lógica de status"""
     if efetivada:
         return True
+    # Considerar também alocações com percentual como "aplicadas"
+    # para fins de cálculo do valor restante (todas as colunas exceto "mapeado")
+    percentual_float = _to_float(percentual)
+    if percentual_float >= 50:  # apresentado, push_enviado ou superior
+        return True
     return False
 
 
@@ -1163,22 +1168,35 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data):
     try:
         if supabase and uid:
             # Buscar alocações confirmadas
-            alocacoes_resp = supabase.table("alocacoes").select("*, produtos:produto_id(*)").eq("user_id", uid).execute()
+            alocacoes_resp = supabase.table("alocacoes").select("*, produto:produto_id(*)").eq("user_id", uid).execute()
             
             for aloc in alocacoes_resp.data or []:
-                # Verificar se está confirmada usando a mesma lógica do sistema
-                if not _is_confirmed(aloc.get("percentual"), aloc.get("efetivada")):
-                    continue
-                    
-                produto = aloc.get("produtos", {})
-                
+                percentual = aloc.get("percentual")
+                efetivada = aloc.get("efetivada")
+                produto = aloc.get("produto", {})
+
                 if not produto:
                     continue
-                    
+
                 produto_nome = produto.get("nome", "").strip()
                 valor = _to_float(aloc.get("valor"))
-                
-                if valor > 0 and produto_nome:
+
+                # Verificar se deve ser considerada para o cálculo
+                # Usar a mesma lógica de status da view principal
+                if efetivada:
+                    # Confirmado
+                    incluir = True
+                elif _to_float(percentual) >= 75:
+                    # Push enviado
+                    incluir = True
+                elif _to_float(percentual) >= 50:
+                    # Apresentado
+                    incluir = True
+                else:
+                    # Mapeado - não incluir
+                    incluir = False
+
+                if incluir and valor > 0 and produto_nome:
                     # Somar valor financeiro aplicado por produto
                     if produto_nome not in valor_aplicado_por_produto:
                         valor_aplicado_por_produto[produto_nome] = 0.0
