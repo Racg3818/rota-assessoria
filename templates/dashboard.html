@@ -23,7 +23,12 @@
       <div class="text-right">
         <div class="text-sm text-indigo-200 mb-1">Meta do Mês</div>
         <div class="text-4xl font-bold">{{ (meta or 0)|brl }}</div>
-        <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="text-xs text-indigo-200 hover:text-white transition-colors underline">
+        {% if receita_assessor_esperada and receita_assessor_esperada > 0 %}
+        <div class="text-sm text-indigo-200 mt-2 mb-1">Receita Assessor Esperada</div>
+        <div class="text-lg font-medium text-indigo-100">{{ receita_assessor_esperada|brl }}</div>
+        <div class="text-xs text-indigo-300">Meta × 80% × Média Ponderada</div>
+        {% endif %}
+        <a href="{{ url_for('alocacoes.metas_escritorio') }}" class="text-xs text-indigo-200 hover:text-white transition-colors underline mt-2 block">
           Gerenciar Metas →
         </a>
       </div>
@@ -561,6 +566,7 @@
   {% endfor %}
 </div>
 
+
 <!-- Gráfico evolução receita passiva assessor -->
 <div class="border rounded-xl p-4 bg-white mt-6">
   <h3 class="font-medium mb-4">Evolução da Receita Passiva Assessor</h3>
@@ -571,6 +577,8 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+  // ========== GRÁFICO RECEITA PASSIVA ASSESSOR ==========
   const ctx = document.getElementById('receitaPassivaChart').getContext('2d');
   
   const dados = {{ historico_receita_passiva|tojson }};

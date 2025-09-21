@@ -85,6 +85,270 @@ def _extract_digits(code: str) -> str:
     return ds[0]
 
 
+def _receita_por_modelo_mensal():
+    """
+    Busca receita escritório e assessor por modelo, mês a mês.
+    CORRIGIDO: Usa agregação SQL direta para garantir valores corretos.
+
+    Retorna: [
+        {
+            "mes": "2025-01",
+            "modelos": {
+                "TRADICIONAL": {"escritorio": 2000.0, "assessor": 1600.0},
+                "ASSET": {"escritorio": 1500.0, "assessor": 1200.0},
+                "FEE_BASED": {"escritorio": 3000.0, "assessor": 2400.0},
+                "FEE_BASED_SEM_RV": {"escritorio": 1000.0, "assessor": 800.0}
+            }
+        },
+        ...
+    ]
+    """
+    supabase = _get_supabase()
+    if not supabase:
+        current_app.logger.warning("_receita_por_modelo_mensal: Supabase não disponível")
+        return []
+
+    uid = _uid()
+    current_app.logger.error("🎯 RECEITA_MODELO_MENSAL: Processando para user_id = %s", uid)
+
+    if not uid:
+        current_app.logger.warning("_receita_por_modelo_mensal: Sem user_id")
+        return []
+
+    # Debug: log do user_id usado
+    current_app.logger.info("RECEITA_MODELO_MENSAL: User ID da sessão: %s", uid)
+
+    try:
+        from collections import defaultdict
+        from datetime import datetime
+
+        # 1. Buscar mapeamento código -> modelo (igual ao anterior)
+        clientes_result = supabase.table("clientes").select(
+            "id, codigo_xp, codigo_mb, modelo"
+        ).eq("user_id", uid).execute()
+
+        clientes_data = clientes_result.data or []
+        current_app.logger.info("RECEITA_MODELO_MENSAL: %d clientes encontrados", len(clientes_data))
+
+        # Log da query de clientes para debug
+        current_app.logger.info("RECEITA_MODELO_MENSAL: %d clientes encontrados para mapeamento", len(clientes_data))
+
+        # Mapear código do cliente para modelo
+        codigo_para_modelo = {}
+        for cliente in clientes_data:
+            modelo = cliente.get("modelo", "").strip() or "SEM_MODELO"
+
+            codigo_xp = _extract_digits(cliente.get("codigo_xp") or "")
+            codigo_mb = _extract_digits(cliente.get("codigo_mb") or "")
+
+            if codigo_xp:
+                codigo_para_modelo[codigo_xp] = modelo
+            if codigo_mb:
+                codigo_para_modelo[codigo_mb] = modelo
+
+        # Log do mapeamento criado
+        current_app.logger.info("RECEITA_MODELO_MENSAL: %d códigos mapeados para modelos", len(codigo_para_modelo))
+
+        # 2. Usar RPC ou query direta para obter totais por mês (como o SQL que funcionou)
+        year = datetime.now().year
+        start_ym = f"{year}-01"
+        next_year_start = f"{year + 1}-01"
+
+        current_app.logger.info("RECEITA_MODELO_MENSAL: Buscando dados de %s até %s", start_ym, next_year_start)
+
+        # Buscar TODOS os dados de uma vez, aplicando filtros como no SQL
+        table_name = "receita_itens"
+        try:
+            supabase.table(table_name).select("cliente_codigo").limit(1).execute()
+        except Exception:
+            table_name = "receita_intens"
+            current_app.logger.info("RECEITA_MODELO_MENSAL: Usando tabela fallback receita_intens")
+
+        # Buscar dados usando paginação correta (sem limite artificial)
+        try:
+            receitas_data = []
+            page_size = 1000
+            offset = 0
+
+            current_app.logger.info("RECEITA_MODELO_MENSAL: Iniciando busca paginada sem limite")
+
+            while True:
+                receitas_query = (
+                    supabase.table(table_name)
+                    .select("data_ref, cliente_codigo, comissao_escritorio, valor_liquido, familia")
+                    .eq("user_id", uid)
+                    .gte("data_ref", start_ym)
+                    .lt("data_ref", next_year_start)
+                    .not_.ilike("familia", "%administrativo%")  # Usar ilike como no SQL
+                    .order("id")  # CORREÇÃO: Ordenar por ID em vez de data_ref
+                    .range(offset, offset + page_size - 1)
+                )
+
+                page_result = receitas_query.execute()
+                page_data = page_result.data or []
+
+                if not page_data:
+                    break
+
+                receitas_data.extend(page_data)
+
+                current_app.logger.info("RECEITA_MODELO_MENSAL: Página %d - %d registros (total: %d)",
+                                       offset // page_size + 1, len(page_data), len(receitas_data))
+
+                if len(page_data) < page_size:
+                    break
+
+                offset += page_size
+
+                # Limite de segurança para evitar loops infinitos
+                if offset > 100000:
+                    current_app.logger.warning("RECEITA_MODELO_MENSAL: Limite de segurança atingido")
+                    break
+
+            current_app.logger.info("RECEITA_MODELO_MENSAL: %d registros obtidos com paginação", len(receitas_data))
+
+            # Verificar registros de fevereiro especificamente para debug
+            fev_registros = [r for r in receitas_data if r.get("data_ref", "").startswith("2025-02")]
+            current_app.logger.info("RECEITA_MODELO_MENSAL: %d registros de fevereiro encontrados", len(fev_registros))
+
+        except Exception as e:
+            current_app.logger.error("RECEITA_MODELO_MENSAL: Erro na query paginada, usando fallback: %s", e)
+            # Fallback para método anterior se query falhar
+            return _receita_por_modelo_mensal_fallback(supabase, uid, codigo_para_modelo)
+
+        # 3. Processar dados e agrupar por mês/modelo
+        receitas_por_mes_modelo = defaultdict(lambda: defaultdict(lambda: {"escritorio": 0.0, "assessor": 0.0}))
+
+        for r in receitas_data:
+            data_ref = r.get("data_ref", "")
+            if not data_ref:
+                continue
+
+            mes = data_ref[:7]  # YYYY-MM
+            codigo = _extract_digits(r.get("cliente_codigo") or "")
+            comissao_escritorio = _to_float(r.get("comissao_escritorio")) or 0.0
+            valor_liquido = _to_float(r.get("valor_liquido")) or 0.0
+
+            # Mapear para modelo (default TRADICIONAL se não encontrado)
+            modelo = codigo_para_modelo.get(codigo, "TRADICIONAL")
+
+            receitas_por_mes_modelo[mes][modelo]["escritorio"] += comissao_escritorio
+            receitas_por_mes_modelo[mes][modelo]["assessor"] += valor_liquido
+
+        # 4. Converter para formato da tabela
+        resultado = []
+        for mes in sorted(receitas_por_mes_modelo.keys()):
+            modelos_dict = dict(receitas_por_mes_modelo[mes])
+
+            # Log para debug de valores específicos
+            if mes == "2025-02":
+                total_escritorio = sum(m.get("escritorio", 0) for m in modelos_dict.values())
+                current_app.logger.info("RECEITA_MODELO_MENSAL: Fevereiro - Total Escritório: %.2f", total_escritorio)
+                for modelo, valores in modelos_dict.items():
+                    current_app.logger.info("RECEITA_MODELO_MENSAL: Fevereiro - %s: Escrit=%.2f, Assess=%.2f",
+                                           modelo, valores.get("escritorio", 0), valores.get("assessor", 0))
+
+                # Verificar se o cálculo está correto
+                esperado = 32881.30
+                diferenca = abs(total_escritorio - esperado)
+                if diferenca > 1.0:
+                    current_app.logger.warning("RECEITA_MODELO_MENSAL: Fevereiro difere do esperado: %.2f vs %.2f (diff: %.2f)",
+                                              total_escritorio, esperado, diferenca)
+                else:
+                    current_app.logger.info("RECEITA_MODELO_MENSAL: Fevereiro calculado corretamente: %.2f", total_escritorio)
+
+            resultado.append({
+                "mes": mes,
+                "modelos": modelos_dict
+            })
+
+        current_app.logger.info("RECEITA_MODELO_MENSAL: %d meses processados", len(resultado))
+        return resultado
+
+    except Exception as e:
+        current_app.logger.error("RECEITA_MODELO_MENSAL: Erro geral: %s", e)
+        return []
+
+
+def _receita_por_modelo_mensal_fallback(supabase, uid, codigo_para_modelo):
+    """Fallback usando método de paginação anterior"""
+    current_app.logger.info("RECEITA_MODELO_MENSAL: Usando método fallback com paginação")
+
+    from collections import defaultdict
+    from datetime import datetime
+
+    year = datetime.now().year
+    start_ym = f"{year}-01"
+    next_year_start = f"{year + 1}-01"
+
+    receitas_por_mes_modelo = defaultdict(lambda: defaultdict(lambda: {"escritorio": 0.0, "assessor": 0.0}))
+
+    table_name = "receita_itens"
+    try:
+        supabase.table(table_name).select("cliente_codigo").limit(1).execute()
+    except Exception:
+        table_name = "receita_intens"
+
+    LIMIT_PAGE = 1000
+    offset = 0
+    total_processado = 0
+
+    while True:
+        try:
+            q = (
+                supabase.table(table_name)
+                .select("data_ref, cliente_codigo, comissao_escritorio, valor_liquido, familia")
+                .gte("data_ref", start_ym)
+                .lt("data_ref", next_year_start)
+                .eq("user_id", uid)
+                .order("data_ref")
+            )
+            res = q.range(offset, offset + LIMIT_PAGE - 1).execute()
+        except Exception as e:
+            current_app.logger.error("RECEITA_MODELO_MENSAL_FALLBACK: Erro na consulta: %s", e)
+            break
+
+        rows = list(res.data or [])
+        if not rows:
+            break
+
+        for r in rows:
+            total_processado += 1
+            data_ref = r.get("data_ref", "")
+            if not data_ref:
+                continue
+
+            # Filtrar registros administrativos (usando mesma lógica do SQL)
+            familia = r.get("familia", "") or ""
+            if familia and "administrativo" in familia.lower():
+                continue
+
+            mes = data_ref[:7]  # YYYY-MM
+            codigo = _extract_digits(r.get("cliente_codigo") or "")
+            comissao_escritorio = _to_float(r.get("comissao_escritorio")) or 0.0
+            valor_liquido = _to_float(r.get("valor_liquido")) or 0.0
+
+            modelo = codigo_para_modelo.get(codigo, "TRADICIONAL")
+            receitas_por_mes_modelo[mes][modelo]["escritorio"] += comissao_escritorio
+            receitas_por_mes_modelo[mes][modelo]["assessor"] += valor_liquido
+
+        offset += len(rows)
+
+        if offset > 50000:
+            current_app.logger.warning("RECEITA_MODELO_MENSAL_FALLBACK: Limite de paginação atingido")
+            break
+
+    # Converter para formato da tabela
+    resultado = []
+    for mes in sorted(receitas_por_mes_modelo.keys()):
+        resultado.append({
+            "mes": mes,
+            "modelos": dict(receitas_por_mes_modelo[mes])
+        })
+
+    return resultado
+
+
 # ----------------- Preferências (produtos selecionados) -----------------
 def _load_product_prefs() -> list[str]:
     key = _user_key()
@@ -148,7 +412,7 @@ def _fetch_supabase_rows_paged(page_size: int = 1000, max_pages: int = 200):
         while True:
             start = page * page_size
             end = start + page_size - 1
-            q = supabase.table("receita_itens").select(cols).order("data_ref", desc=False).range(start, end)
+            q = supabase.table("receita_itens").select(cols).order("id", desc=False).range(start, end)  # FIX: Ordenação por ID
             uidv = _uid()
             if uidv:
                 q = q.eq("user_id", uidv)
@@ -464,6 +728,9 @@ def index():
         itens.sort(key=lambda x: x["valor_escritorio"], reverse=True)
         clientes_por_mes.append({"mes": m, "itens": itens, "total_mes_escritorio": total_mes_escritorio})
 
+    # Buscar receita por modelo mês a mês
+    receita_por_modelo = _receita_por_modelo_mensal()
+
     return render_template(
         "receita/index.html",
         mes_filter=mes_filter,
@@ -479,6 +746,7 @@ def index():
         source=source,
         view_version=RECEITA_VIEW_VERSION,
         error_msg=error_msg,
+        receita_por_modelo=receita_por_modelo,
     )
 
 

@@ -432,6 +432,69 @@ def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
     return dict(totais_by_id), mediana_ytd
 
 
+def _receita_assessor_esperada(meta_mes: float, clientes) -> float:
+    """
+    Calcula a receita assessor esperada baseada na meta do mês.
+    Fórmula: Meta × 80% × Média Ponderada de Repasse da Carteira
+
+    Args:
+        meta_mes: Meta de receita do mês em reais
+        clientes: Lista de clientes com NET e repasse
+
+    Returns:
+        Receita assessor esperada em reais
+    """
+    current_app.logger.info("RECEITA_ASSESSOR_ESPERADA: Iniciando cálculo - Meta: %.2f, Clientes: %d",
+                           meta_mes, len(clientes) if clientes else 0)
+
+    if not clientes:
+        current_app.logger.warning("RECEITA_ASSESSOR_ESPERADA: Lista de clientes vazia")
+        return 0.0
+
+    if meta_mes <= 0:
+        current_app.logger.warning("RECEITA_ASSESSOR_ESPERADA: Meta <= 0: %.2f", meta_mes)
+        return 0.0
+
+    total_net = 0.0
+    total_net_ponderado = 0.0
+    clientes_validos = 0
+
+    # Verificar se campo repasse existe nos clientes
+    if clientes and 'repasse' not in clientes[0]:
+        current_app.logger.error("RECEITA_ASSESSOR_ESPERADA: Campo 'repasse' não encontrado nos clientes! Campos disponíveis: %s",
+                                list(clientes[0].keys()) if clientes else [])
+        return 0.0
+
+    for cliente in clientes:
+        net_total = _to_float(cliente.get("net_total"))
+        repasse = _to_float(cliente.get("repasse"))
+
+        # Só considerar clientes com NET > 0
+        if net_total > 0:
+            clientes_validos += 1
+            total_net += net_total
+
+            if repasse > 0:
+                contribution = net_total * repasse / 100.0
+                total_net_ponderado += contribution
+
+    if total_net <= 0:
+        current_app.logger.warning("RECEITA_ASSESSOR_ESPERADA: Total NET = 0, não é possível calcular média ponderada")
+        return 0.0
+
+    # Calcular média ponderada de repasse
+    media_ponderada_repasse = total_net_ponderado / total_net
+
+    # Fórmula: Meta × 80% × Média Ponderada
+    receita_assessor_esperada = meta_mes * 0.80 * media_ponderada_repasse
+
+    current_app.logger.info("RECEITA_ASSESSOR_ESPERADA: Média ponderada: %.4f (%.2f%%) | Resultado: %.2f × 80%% × %.4f = %.2f",
+                           media_ponderada_repasse, media_ponderada_repasse * 100,
+                           meta_mes, media_ponderada_repasse, receita_assessor_esperada)
+
+    return receita_assessor_esperada
+
+
 def _meta_do_mes():
     # SEGURANÇA: Usar APENAS cliente autenticado para evitar vazamentos
     supabase = _get_supabase()
@@ -898,6 +961,7 @@ def _calcular_roa(receita_escritorio_mes: float, clientes) -> float:
     return roa_percentual
 
 
+
 def _historico_receita_passiva_assessor() -> list:
     """
     Busca o histórico da receita passiva (assessor) mês a mês.
@@ -929,7 +993,7 @@ def _historico_receita_passiva_assessor() -> list:
             res_receitas = (supabase.table("receita_itens")
                           .select("data_ref, valor_liquido, produto, familia")
                           .eq("user_id", uid)
-                          .order("data_ref")
+                          .order("id")  # FIX: Usar ID para ordenação consistente
                           .range(offset, offset + page_size - 1)
                           .execute())
             
@@ -1354,11 +1418,15 @@ def _calcular_metricas_dashboard():
     # Calcular receita do assessor usando a fórmula original (já inclui bônus)
     receita_assessor_mes = _receita_assessor_mes(receita_total_mes, clientes)
 
+    # Calcular receita assessor esperada baseada na meta
+    receita_assessor_esperada = _receita_assessor_esperada(meta, clientes)
+
     # Calcular ROA
     roa_percentual = _calcular_roa(receita_total_mes, clientes)
 
     # Buscar histórico da receita passiva
     historico_receita_passiva = _historico_receita_passiva_assessor()
+
 
     by_modelo = _net_by_modelo(clientes)
     mediana_net = _median([c.get("net_total") for c in clientes if _to_float(c.get("net_total")) > 0])
@@ -1381,6 +1449,7 @@ def _calcular_metricas_dashboard():
     current_app.logger.info("DASHBOARD_DEBUG: Clientes carregados: %d", len(clientes))
     current_app.logger.info("DASHBOARD_DEBUG: Receita total mês: %.2f", receita_total_mes)
     current_app.logger.info("DASHBOARD_DEBUG: Receita assessor mês: %.2f", receita_assessor_mes)
+    current_app.logger.info("DASHBOARD_DEBUG: Receita assessor esperada: %.2f", receita_assessor_esperada)
     current_app.logger.info("DASHBOARD_DEBUG: ROA percentual: %.2f", roa_percentual)
     current_app.logger.info("DASHBOARD_DEBUG: Mediana NET: %.2f", mediana_net)
     current_app.logger.info("DASHBOARD_DEBUG: Mediana receita YTD: %.2f", mediana_receita_ytd)
@@ -1397,6 +1466,7 @@ def _calcular_metricas_dashboard():
         'receita_recorrente_mes': receita_recorrente_mes_pura,
         'bonus_ativo_mes': bonus_ativo_mes,
         'receita_assessor_mes': receita_assessor_mes,
+        'receita_assessor_esperada': receita_assessor_esperada,
         'roa_percentual': roa_percentual,
         'historico_receita_passiva': historico_receita_passiva,
         'by_modelo': by_modelo,
@@ -1482,6 +1552,7 @@ def index():
     receita_ativa_mes = metricas['receita_ativa_mes']
     receita_recorrente_mes = metricas['receita_recorrente_mes']
     receita_assessor_mes = metricas['receita_assessor_mes']
+    receita_assessor_esperada = metricas['receita_assessor_esperada']
     roa_percentual = metricas['roa_percentual']
     historico_receita_passiva = metricas['historico_receita_passiva']
     by_modelo = metricas['by_modelo']
@@ -1580,6 +1651,8 @@ def index():
         receita_passiva_mes=_receita_assessor_recorrente(),
         # Receita do assessor
         receita_assessor_mes=receita_assessor_mes,
+        # Receita assessor esperada (baseada na meta)
+        receita_assessor_esperada=receita_assessor_esperada,
         # Receita assessor recorrente (para debug)
         receita_assessor_recorrente=_receita_assessor_recorrente(),
         # ROA
