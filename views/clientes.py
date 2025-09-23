@@ -118,14 +118,16 @@ def index():
         flash("Supabase indisponível.", "warning")
         return render_template('clientes/index.html',
                              clientes=[],
-                             filtros={"q": "", "modelo": ""},
+                             filtros={"q": "", "modelo": "", "letra": ""},
                              stats_by_model={},
                              modelos_ordenados=[],
+                             letras_ordenadas=[],
                              total_clientes=0)
 
     # ── filtros vindos da URL ───────────────────────────────────────────────
     q_txt = (request.args.get('q') or '').strip()              # código XP/MB
     modelo_raw = (request.args.get('modelo') or '').strip()    # modelo
+    letra_filter = (request.args.get('letra') or '').strip()   # primeira letra do nome
     modelo_filter = _norm_modelo(modelo_raw) if modelo_raw else ""
 
     uid = _uid()
@@ -165,6 +167,14 @@ def index():
             res = query.execute()
             rows = res.data or []
 
+        # aplica filtro por primeira letra do nome, se houver
+        if letra_filter and letra_filter.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            letra_upper = letra_filter.upper()
+            rows = [
+                r for r in rows
+                if (r.get("nome") or "").strip().upper().startswith(letra_upper)
+            ]
+
         # mapeia/normaliza para o template
         clientes = []
         for r in rows:
@@ -194,11 +204,27 @@ def index():
         # Ordenar modelos para exibição consistente
         modelos_ordenados = sorted(stats_by_model.keys())
 
+        # Gerar lista de letras disponíveis (buscar todas as primeiras letras dos clientes)
+        try:
+            all_res = supabase.table("clientes").select("nome").eq("user_id", uid).execute() if uid else None
+            all_clientes = all_res.data or [] if all_res else []
+            letras_disponiveis = set()
+            for c in all_clientes:
+                nome = (c.get("nome") or "").strip()
+                if nome:
+                    primeira_letra = nome[0].upper()
+                    if primeira_letra.isalpha():
+                        letras_disponiveis.add(primeira_letra)
+            letras_ordenadas = sorted(list(letras_disponiveis))
+        except Exception:
+            letras_ordenadas = []
+
         return render_template('clientes/index.html',
                              clientes=clientes,
-                             filtros={"q": q_txt, "modelo": modelo_filter},
+                             filtros={"q": q_txt, "modelo": modelo_filter, "letra": letra_filter},
                              stats_by_model=stats_by_model,
                              modelos_ordenados=modelos_ordenados,
+                             letras_ordenadas=letras_ordenadas,
                              total_clientes=total_clientes)
 
     except Exception:
@@ -206,9 +232,10 @@ def index():
         flash("Falha ao listar clientes do Supabase.", "warning")
         return render_template('clientes/index.html',
                              clientes=[],
-                             filtros={"q": q_txt, "modelo": modelo_filter},
+                             filtros={"q": q_txt, "modelo": modelo_filter, "letra": letra_filter},
                              stats_by_model={},
                              modelos_ordenados=[],
+                             letras_ordenadas=[],
                              total_clientes=0)
 
 @clientes_bp.route('/novo', methods=['GET', 'POST'])
