@@ -225,4 +225,76 @@
   </div>
 </div>
 
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center" style="display: none;">
+  <div class="text-center">
+    <div class="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+    <div class="text-xl font-medium text-gray-700 mb-2">Carregando Painel Admin</div>
+    <div class="text-sm text-gray-500">Processando métricas consolidadas...</div>
+  </div>
+</div>
+
+<!-- Loading Scripts -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Mostrar loading ao clicar em links do admin
+    const adminLinks = document.querySelectorAll('a[href*="/admin"]');
+    adminLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            if (this.href !== window.location.href) {
+                document.getElementById('loadingOverlay').style.display = 'flex';
+            }
+        });
+    });
+
+    // Mostrar loading ao recarregar página
+    window.addEventListener('beforeunload', function() {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+    });
+
+    // Performance: lazy load das imagens se houver
+    if ('IntersectionObserver' in window) {
+        const lazyImages = document.querySelectorAll('img[data-src]');
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    img.src = img.dataset.src;
+                    img.classList.remove('lazy');
+                    imageObserver.unobserve(img);
+                }
+            });
+        });
+
+        lazyImages.forEach(img => imageObserver.observe(img));
+    }
+
+    // Animação suave dos cards ao carregar
+    const cards = document.querySelectorAll('.bg-indigo-50, .bg-cyan-50, .bg-teal-50, .bg-blue-50, .bg-emerald-50, .bg-purple-50, .bg-green-50, .bg-orange-50');
+    cards.forEach((card, index) => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(20px)';
+
+        setTimeout(() => {
+            card.style.transition = 'all 0.5s ease';
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+        }, index * 100);
+    });
+
+    // Animação da tabela
+    const tableRows = document.querySelectorAll('tbody tr');
+    tableRows.forEach((row, index) => {
+        row.style.opacity = '0';
+        row.style.transform = 'translateX(-20px)';
+
+        setTimeout(() => {
+            row.style.transition = 'all 0.4s ease';
+            row.style.opacity = '1';
+            row.style.transform = 'translateX(0)';
+        }, (index * 50) + 500); // Delay after cards
+    });
+});
+</script>
+
 {% endblock %}
