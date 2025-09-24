@@ -1,5 +1,4 @@
 from flask import Blueprint, render_template, session, current_app
-from flask_login import login_required
 from datetime import datetime
 from utils.supabase_client import supabase
 from collections import defaultdict
@@ -232,7 +231,6 @@ def _get_all_user_metrics_optimized():
         return []
 
 @admin_bp.route("/", methods=["GET"])
-@login_required
 @_admin_required
 def index():
     """Tela principal administrativa com métricas consolidadas - VERSÃO OTIMIZADA"""
