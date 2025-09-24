@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Administração — Rota Assessoria{% endblock %}
+{% block subtitle %}Visão consolidada de todas as métricas{% endblock %}
+{% block content %}
+
+<!-- Header Administrativo -->
+<div class="relative mb-8 bg-gradient-to-br from-red-600 via-orange-600 to-yellow-600 rounded-3xl p-8 text-white overflow-hidden">
+  <!-- Background Pattern -->
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-72 h-72 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-72 h-72 bg-red-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+    <div class="absolute -bottom-8 left-20 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-4000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">🔒</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Painel Administrativo</h1>
+        </div>
+        <p class="text-orange-100 text-lg">Visão consolidada — {{ mes_atual }}</p>
+      </div>
+      <div class="text-right">
+        <div class="text-sm text-orange-200 mb-1">Acesso Restrito</div>
+        <div class="text-lg font-medium text-orange-100">Apenas Renan Godinho</div>
+        <div class="text-xs text-orange-300 mt-1">{{ total_usuarios }} usuários monitorados</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Resumo Geral -->
+<div class="mb-8 bg-white rounded-xl border p-6">
+  <div class="flex items-center gap-3 mb-4">
+    <span class="text-2xl">📊</span>
+    <h2 class="text-xl font-bold text-gray-800">Resumo Geral — {{ mes_atual }}</h2>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
+    <!-- Penetração XP Total -->
+    {% set penetracao_xp_total = (usuarios_metricas|sum(attribute='xp_count') / usuarios_metricas|sum(attribute='total_clientes') * 100) if usuarios_metricas|sum(attribute='total_clientes') > 0 else 0 %}
+    <div class="text-center p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+      <div class="text-2xl font-bold text-indigo-800">{{ "%.1f"|format(penetracao_xp_total) }}%</div>
+      <div class="text-sm text-indigo-600 font-medium">Penetração XP</div>
+      <div class="text-xs text-indigo-500 mt-1">{{ usuarios_metricas|sum(attribute='xp_count') }} clientes</div>
+    </div>
+
+    <!-- Penetração MB Total -->
+    {% set penetracao_mb_total = (usuarios_metricas|sum(attribute='mb_count') / usuarios_metricas|sum(attribute='total_clientes') * 100) if usuarios_metricas|sum(attribute='total_clientes') > 0 else 0 %}
+    <div class="text-center p-4 bg-cyan-50 rounded-lg border border-cyan-200">
+      <div class="text-2xl font-bold text-cyan-800">{{ "%.1f"|format(penetracao_mb_total) }}%</div>
+      <div class="text-sm text-cyan-600 font-medium">Penetração MB</div>
+      <div class="text-xs text-cyan-500 mt-1">{{ usuarios_metricas|sum(attribute='mb_count') }} clientes</div>
+    </div>
+
+    <!-- Penetração Total -->
+    {% set penetracao_total_geral = penetracao_xp_total + penetracao_mb_total %}
+    <div class="text-center p-4 bg-teal-50 rounded-lg border border-teal-200">
+      <div class="text-2xl font-bold text-teal-800">{{ "%.1f"|format(penetracao_total_geral) }}%</div>
+      <div class="text-sm text-teal-600 font-medium">Penetração Total</div>
+      <div class="text-xs text-teal-500 mt-1">{{ usuarios_metricas|sum(attribute='total_clientes') }} clientes</div>
+    </div>
+
+    <!-- Meta Total -->
+    <div class="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div class="text-2xl font-bold text-blue-800">{{ total_meta|brl }}</div>
+      <div class="text-sm text-blue-600 font-medium">Meta Total</div>
+    </div>
+
+    <!-- Receita Escritório Total -->
+    <div class="text-center p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+      <div class="text-2xl font-bold text-emerald-800">{{ total_receita_escritorio|brl }}</div>
+      <div class="text-sm text-emerald-600 font-medium">Receita Escritório</div>
+    </div>
+
+    <!-- Receita Assessor Total -->
+    <div class="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+      <div class="text-2xl font-bold text-purple-800">{{ total_receita_assessor|brl }}</div>
+      <div class="text-sm text-purple-600 font-medium">Receita Assessor</div>
+    </div>
+
+    <!-- Atingimento Geral -->
+    <div class="text-center p-4 {{ 'bg-green-50 border-green-200' if atingimento_geral >= 100 else 'bg-orange-50 border-orange-200' }} rounded-lg border">
+      <div class="text-2xl font-bold {{ 'text-green-800' if atingimento_geral >= 100 else 'text-orange-800' }}">{{ "%.1f"|format(atingimento_geral) }}%</div>
+      <div class="text-sm {{ 'text-green-600' if atingimento_geral >= 100 else 'text-orange-600' }} font-medium">Atingimento Geral</div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabela Detalhada por Usuário -->
+<div class="bg-white rounded-xl border overflow-hidden">
+  <div class="p-6 border-b bg-gray-50">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">👥</span>
+      <h2 class="text-xl font-bold text-gray-800">Métricas por Assessor</h2>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="text-left p-4 font-medium text-gray-700">Assessor</th>
+          <th class="text-center p-4 font-medium text-gray-700">Penetração XP</th>
+          <th class="text-center p-4 font-medium text-gray-700">Penetração MB</th>
+          <th class="text-center p-4 font-medium text-gray-700">Penetração Total</th>
+          <th class="text-center p-4 font-medium text-gray-700">Meta Mês</th>
+          <th class="text-center p-4 font-medium text-gray-700">Receita Escritório</th>
+          <th class="text-center p-4 font-medium text-gray-700">Receita Assessor</th>
+          <th class="text-center p-4 font-medium text-gray-700">Atingimento</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for usuario in usuarios_metricas %}
+        <tr class="border-b hover:bg-gray-50 transition-colors">
+          <!-- Nome/Email -->
+          <td class="p-4">
+            <div>
+              <div class="font-medium text-gray-900">{{ usuario.name }}</div>
+              <div class="text-sm text-gray-500">{{ usuario.email }}</div>
+              {% if usuario.error %}
+              <div class="text-xs text-red-500 mt-1">{{ usuario.error }}</div>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Penetração XP -->
+          <td class="p-4 text-center">
+            <div class="flex flex-col items-center">
+              <span class="font-medium">{{ "%.1f"|format(usuario.penetracao_xp) }}%</span>
+              {% if usuario.xp_count is defined %}
+              <span class="text-xs text-gray-500">{{ usuario.xp_count }} clientes</span>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Penetração MB -->
+          <td class="p-4 text-center">
+            <div class="flex flex-col items-center">
+              <span class="font-medium">{{ "%.1f"|format(usuario.penetracao_mb) }}%</span>
+              {% if usuario.mb_count is defined %}
+              <span class="text-xs text-gray-500">{{ usuario.mb_count }} clientes</span>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Penetração Total -->
+          <td class="p-4 text-center">
+            <div class="flex flex-col items-center">
+              {% if usuario.penetracao_total < 20 %}
+              <span class="font-bold px-2 py-1 rounded-md text-white bg-red-600 shadow-md">
+                {{ "%.1f"|format(usuario.penetracao_total) }}%
+              </span>
+              <span class="text-xs text-red-600 mt-1">🚨 Crítico</span>
+              {% else %}
+              <span class="font-bold px-2 py-1 rounded-md text-white bg-green-600 shadow-md">
+                {{ "%.1f"|format(usuario.penetracao_total) }}%
+              </span>
+              <span class="text-xs text-green-600 mt-1">✅ Bom</span>
+              {% endif %}
+              {% if usuario.total_clientes is defined %}
+              <span class="text-xs text-gray-500">{{ usuario.total_clientes }} total</span>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Meta Mês -->
+          <td class="p-4 text-center">
+            <span class="font-medium">{{ usuario.meta_mes|brl }}</span>
+          </td>
+
+          <!-- Receita Escritório -->
+          <td class="p-4 text-center">
+            <span class="font-medium text-emerald-700">{{ usuario.receita_escritorio|brl }}</span>
+          </td>
+
+          <!-- Receita Assessor -->
+          <td class="p-4 text-center">
+            <span class="font-medium text-purple-700">{{ usuario.receita_assessor|brl }}</span>
+          </td>
+
+          <!-- Atingimento -->
+          <td class="p-4 text-center">
+            {% set atingimento = usuario.atingimento_pct %}
+            <div class="flex flex-col items-center">
+              <span class="font-bold px-2 py-1 rounded text-sm
+                {{ 'text-green-700 bg-green-100' if atingimento >= 100 else
+                   'text-blue-700 bg-blue-100' if atingimento >= 80 else
+                   'text-orange-700 bg-orange-100' if atingimento >= 50 else
+                   'text-red-700 bg-red-100' }}">
+                {{ "%.1f"|format(atingimento) }}%
+              </span>
+              {% if atingimento >= 100 %}
+              <span class="text-xs text-green-600 mt-1">✅ Meta batida</span>
+              {% elif atingimento >= 80 %}
+              <span class="text-xs text-blue-600 mt-1">🎯 Próximo da meta</span>
+              {% elif atingimento >= 50 %}
+              <span class="text-xs text-orange-600 mt-1">⚠️ Atenção</span>
+              {% else %}
+              <span class="text-xs text-red-600 mt-1">🚨 Crítico</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Rodapé com Informações de Segurança -->
+<div class="mt-8 p-4 bg-red-50 border border-red-200 rounded-lg">
+  <div class="flex items-start gap-3">
+    <span class="text-red-500 text-lg">🔒</span>
+    <div>
+      <h3 class="font-medium text-red-800 mb-1">Tela Administrativa Restrita</h3>
+      <p class="text-sm text-red-700">
+        Esta tela contém informações sensíveis e tem acesso limitado apenas ao email <strong>renan.godinho@svninvest.com.br</strong>.
+        Todos os acessos são registrados nos logs do sistema.
+      </p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

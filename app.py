@@ -9,6 +9,7 @@ from views.clientes import clientes_bp
 from views.importar import importar_bp
 from views.finadvisor import fin_bp
 from views.alocacoes import alocacoes_bp
+from views.admin import admin_bp
 # 🚨 SEGURANÇA CRÍTICA: Middleware de proteção contra vazamento de dados
 from security_middleware import init_security_middleware
 
@@ -46,6 +47,30 @@ def create_app():
     # Cache
     init_cache(app)
 
+    # 📊 MIDDLEWARE DE LOGGING: Registrar todas as mudanças de tela
+    @app.before_request
+    def log_page_access():
+        from flask import request
+        from security_middleware import get_current_user_id
+
+        # Pular logs para arquivos estáticos
+        if request.endpoint and 'static' in request.endpoint:
+            return
+
+        user_id = get_current_user_id()
+        user_email = "N/A"
+
+        try:
+            from flask import session
+            user = session.get("user", {})
+            user_email = user.get("email", "N/A")
+        except:
+            pass
+
+        app.logger.error("📱 ACESSO PÁGINA: %s | User: %s (%s) | IP: %s",
+                        request.path, user_id or "NONE", user_email,
+                        request.remote_addr)
+
     # 🚨 SEGURANÇA CRÍTICA: Inicializar middleware de proteção
     init_security_middleware(app)
 
@@ -58,6 +83,7 @@ def create_app():
     app.register_blueprint(importar_bp)
     app.register_blueprint(fin_bp)
     app.register_blueprint(alocacoes_bp)
+    app.register_blueprint(admin_bp)
 
     # Rota raiz para redirecionamento
     @app.route('/')
