@@ -1,7 +1,12 @@
 from flask import Blueprint, render_template, session, current_app
 from datetime import datetime
-from utils.supabase_client import supabase
 from collections import defaultdict
+
+try:
+    from supabase_client import supabase, get_supabase_client
+except ImportError:
+    supabase = None
+    get_supabase_client = None
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
