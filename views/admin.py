@@ -72,16 +72,29 @@ def _get_all_user_metrics_optimized():
             "user_id, cliente_id, produto_id, valor, produtos(classe, em_campanha)"
         ).in_("user_id", user_ids).eq("efetivada", True).execute()
 
-        # Organizar alocações por user_id
+        # Organizar alocações por user_id e coletar produto_ids únicos
         alocacoes_by_user = defaultdict(list)
+        produto_ids_unicos = set()
+
         for alocacao in (alocacoes_res.data or []):
             alocacoes_by_user[alocacao["user_id"]].append(alocacao)
+            if alocacao.get("produto_id"):
+                produto_ids_unicos.add(alocacao["produto_id"])
 
-        # 4. QUERY ÚNICA: Buscar todas as metas do mês atual
+        # 4. QUERY ÚNICA: Buscar ROA de todos os produtos necessários
+        produtos_roa = {}
+        if produto_ids_unicos:
+            try:
+                produtos_res = supabase.table("produtos").select("id, roa_pct").in_("id", list(produto_ids_unicos)).execute()
+                produtos_roa = {p["id"]: _to_float(p.get("roa_pct", 0)) for p in (produtos_res.data or [])}
+            except Exception:
+                produtos_roa = {}
+
+        # 5. QUERY ÚNICA: Buscar todas as metas do mês atual
         metas_res = supabase.table("metas_mensais").select("user_id, meta_receita").in_("user_id", user_ids).eq("mes", mes_atual).execute()
         metas_by_user = {meta["user_id"]: _to_float(meta.get("meta_receita", 0)) for meta in (metas_res.data or [])}
 
-        # 5. QUERY ÚNICA: Buscar todos os bônus ativos do mês atual
+        # 6. QUERY ÚNICA: Buscar todos os bônus ativos do mês atual
         try:
             bonus_res = supabase.table("bonus_missoes").select(
                 "user_id, valor_bonus, liquido_assessor"
@@ -99,8 +112,8 @@ def _get_all_user_metrics_optimized():
         except Exception:
             bonus_by_user = defaultdict(float)
 
-        # 6. QUERY ÚNICA: Buscar receitas recorrentes (se necessário)
-        # TODO: Implementar se precisar da receita recorrente
+        # 7. Receitas recorrentes omitidas para otimização
+        # (podem ser implementadas futuramente se necessário)
 
         # PROCESSAR DADOS para cada usuário
         usuarios_metricas = []
@@ -181,14 +194,21 @@ def _get_all_user_metrics_optimized():
                 penetracao_mb = (mb_count / total_clientes * 100) if total_clientes > 0 else 0.0
                 penetracao_total = penetracao_xp + penetracao_mb
 
-            # Calcular receitas (lógica simplificada para otimização)
+            # Calcular receitas (USANDO LÓGICA CORRETA com dados pré-carregados)
             receita_ativa = 0.0
-            for alocacao in alocacoes:
-                valor_alocacao = _to_float(alocacao.get("valor", 0))
-                receita_ativa += valor_alocacao * 0.005  # 0.5% padrão
 
-            # Receita recorrente (simplificada - pode ser otimizada mais)
-            receita_recorrente = 0.0  # TODO: Implementar se necessário
+            # Calcular receita usando produtos já carregados
+            for alocacao in alocacoes:
+                valor = _to_float(alocacao.get("valor", 0))
+                produto_id = alocacao.get("produto_id")
+                roa_pct = produtos_roa.get(produto_id, 0.0)
+
+                if valor > 0 and roa_pct > 0:
+                    receita_item = valor * (roa_pct / 100.0)
+                    receita_ativa += receita_item
+
+            # Receita recorrente omitida para otimização
+            receita_recorrente = 0.0
 
             receita_escritorio = receita_ativa + receita_recorrente + bonus_ativo
 
