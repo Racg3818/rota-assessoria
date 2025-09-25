@@ -647,6 +647,98 @@ def _bulk_load_admin_data():
         current_app.logger.error(f"❌ ADMIN_BULK_LOAD: Erro ao carregar dados: {e}")
         return {'error': str(e)}
 
+def _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data):
+    """
+    Calcula receita escritório recorrente usando dados já carregados em bulk
+    EXATA mesma lógica do Dashboard, mas otimizada
+    """
+    if not clientes:
+        return 0.0
+
+    # Buscar receitas do usuário dos dados bulk
+    receitas = bulk_data.get('receita_by_user', {}).get(user_id, [])
+    if not receitas:
+        return 0.0
+
+    # Encontrar o último mês disponível
+    meses_disponiveis = [r.get('data_ref', '')[:7] for r in receitas if r.get('data_ref')]
+    if not meses_disponiveis:
+        return 0.0
+
+    ultimo_mes = max(meses_disponiveis)
+
+    # Buscar preferências de recorrência
+    import json
+    prefs_value = bulk_data.get('prefs_by_user', {}).get(user_id)
+    selected_set = set()
+
+    if prefs_value:
+        if isinstance(prefs_value, str):
+            try:
+                categorias = json.loads(prefs_value)
+                selected_set = set(categorias)
+            except:
+                pass
+        elif isinstance(prefs_value, list):
+            selected_set = set(prefs_value)
+
+    # Calcular receita passiva do último mês
+    receita_assessor_recorrente = 0.0
+
+    def _is_admin_family(fam):
+        fam_lower = fam.lower()
+        return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
+
+    for receita in receitas:
+        data_ref = receita.get('data_ref', '')
+        if not data_ref.startswith(ultimo_mes):
+            continue
+
+        produto = (receita.get("produto") or "").strip()
+        familia = (receita.get("familia") or "").strip()
+        val_liq = _to_float(receita.get("valor_liquido"))
+
+        # Pular família administrativa
+        if _is_admin_family(familia):
+            continue
+
+        # Lógica EXATA do Dashboard
+        produto_presente = bool(produto)
+
+        if not produto_presente:
+            # Se não tem produto, conta como recorrente
+            receita_assessor_recorrente += val_liq
+        else:
+            # Se tem produto, só conta se estiver nas categorias selecionadas
+            if not selected_set or (produto in selected_set):
+                receita_assessor_recorrente += val_liq
+
+    if receita_assessor_recorrente <= 0:
+        return 0.0
+
+    # Calcular média ponderada dos clientes (mesma lógica do Dashboard)
+    total_net = 0.0
+    total_net_ponderado = 0.0
+
+    for cliente in clientes:
+        net_total = _to_float(cliente.get("net_total", 0))
+        repasse = _to_float(cliente.get("repasse", 0))
+
+        if net_total > 0:
+            total_net += net_total
+            if repasse > 0:
+                contribution = net_total * repasse / 100.0
+                total_net_ponderado += contribution
+
+    if total_net == 0 or total_net_ponderado == 0:
+        return 0.0
+
+    # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
+    media_ponderada_repasse = total_net_ponderado / total_net
+    receita_escritorio_recorrente = receita_assessor_recorrente / 0.80 / media_ponderada_repasse
+
+    return receita_escritorio_recorrente
+
 @admin_bp.route("/", methods=["GET"])
 @_admin_required
 def index():
@@ -747,10 +839,13 @@ def index():
                         roa_pct = _to_float(produto.get('roa_pct', 0))
                         receita_ativa += valor * (roa_pct / 100.0)
 
-            # Receita escritório simplificada (só ativa + bônus para performance)
-            receita_escritorio = receita_ativa + bonus_total
+            # Calcular receita passiva/recorrente
+            receita_recorrente = _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data)
 
-            # Receita assessor simplificada
+            # Receita escritório COMPLETA: ativa + recorrente + bônus
+            receita_escritorio = receita_ativa + receita_recorrente + bonus_total
+
+            # Receita assessor COMPLETA (mesma lógica do Dashboard)
             if not clientes or receita_escritorio <= 0:
                 receita_assessor = 0.0
             else:
@@ -762,9 +857,12 @@ def index():
 
                 if total_net > 0 and total_net_ponderado > 0:
                     media_ponderada_repasse = total_net_ponderado / total_net
-                    receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse + bonus_total
+                    # Base: (Receita Ativa + Receita Recorrente) * 80% * Média Ponderada
+                    receita_assessor_base = (receita_ativa + receita_recorrente) * 0.80 * media_ponderada_repasse
+                    # Total: Base + Bônus (bônus não multiplica pela média ponderada)
+                    receita_assessor = receita_assessor_base + bonus_total
                 else:
-                    receita_assessor = 0.0
+                    receita_assessor = bonus_total  # Só bônus se não tem clientes
 
             # Atingimento
             atingimento_pct = (receita_escritorio / meta_mes * 100) if meta_mes > 0 else 0.0
