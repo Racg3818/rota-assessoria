@@ -660,8 +660,14 @@ def _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data):
     if not receitas:
         return 0.0
 
-    # Encontrar o último mês disponível
-    meses_disponiveis = [r.get('data_ref', '')[:7] for r in receitas if r.get('data_ref')]
+    # Encontrar o último mês disponível (mas NÃO o mês atual para evitar duplicação)
+    mes_atual = datetime.now().strftime("%Y-%m")
+    meses_disponiveis = [
+        r.get('data_ref', '')[:7]
+        for r in receitas
+        if r.get('data_ref') and r.get('data_ref', '')[:7] != mes_atual
+    ]
+
     if not meses_disponiveis:
         return 0.0
 
@@ -738,6 +744,45 @@ def _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data):
     receita_escritorio_recorrente = receita_assessor_recorrente / 0.80 / media_ponderada_repasse
 
     return receita_escritorio_recorrente
+
+def _calculate_receita_ativa_mes_atual(user_id, bulk_data):
+    """
+    Calcula receita ativa do mês atual usando receita_itens (não apenas alocações)
+    Inclui TODA a receita do mês: alocações + importações FinAdvisor
+    """
+    mes_atual = datetime.now().strftime("%Y-%m")
+
+    # Buscar receitas do usuário dos dados bulk
+    receitas = bulk_data.get('receita_by_user', {}).get(user_id, [])
+    if not receitas:
+        return 0.0
+
+    receita_ativa_total = 0.0
+
+    # Função para identificar família administrativa (mesma lógica do Dashboard)
+    def _is_admin_family(fam):
+        fam_lower = fam.lower()
+        return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
+
+    # Somar TODA a receita do mês atual (comissao_escritorio)
+    for receita in receitas:
+        data_ref = receita.get('data_ref', '')
+
+        # Verificar se é do mês atual (YYYY-MM)
+        if not data_ref.startswith(mes_atual):
+            continue
+
+        familia = (receita.get("familia") or "").strip()
+
+        # Pular famílias administrativas
+        if _is_admin_family(familia):
+            continue
+
+        # Somar comissão escritório (receita ativa)
+        comissao_escritorio = _to_float(receita.get("comissao_escritorio"))
+        receita_ativa_total += comissao_escritorio
+
+    return receita_ativa_total
 
 @admin_bp.route("/", methods=["GET"])
 @_admin_required
@@ -829,15 +874,8 @@ def index():
                 penetracao_mb = (len(clientes_apenas_mb) / total_clientes * 100)
                 penetracao_total = penetracao_xp + penetracao_mb
 
-                # Calcular receita ativa do mês
-                receita_ativa = 0.0
-                for alocacao in alocacoes:
-                    created_at = alocacao.get('created_at', '')
-                    if created_at.startswith(mes_atual):
-                        valor = _to_float(alocacao.get('valor', 0))
-                        produto = alocacao.get('produtos', {})
-                        roa_pct = _to_float(produto.get('roa_pct', 0))
-                        receita_ativa += valor * (roa_pct / 100.0)
+                # Calcular receita ativa do mês atual (de receita_itens, não só alocações)
+                receita_ativa = _calculate_receita_ativa_mes_atual(user_id, bulk_data)
 
             # Calcular receita passiva/recorrente
             receita_recorrente = _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data)
