@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Corrigir Códigos — FinAdvisor — Rota Assessoria{% endblock %}
+{% block subtitle %}Correção de códigos de cliente{% endblock %}
+{% block content %}
+
+<!-- Header com informações do usuário -->
+<div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-medium text-blue-900">Corrigir Códigos de Cliente</h2>
+      <p class="text-sm text-blue-700">Código XP detectado: <span class="font-mono font-medium">{{ codigo_xp }}</span></p>
+      <p class="text-xs text-blue-600 mt-1">Listando registros que contêm seu código XP no campo cliente_codigo</p>
+    </div>
+    <div class="text-right">
+      <a href="{{ url_for('finadvisor.index') }}"
+         class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm hover:bg-gray-200">
+        ← Voltar ao FinAdvisor
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Paginação e controles -->
+<div class="mb-4 flex items-center justify-between">
+  <div class="flex items-center gap-4">
+    <span class="text-sm text-gray-600">
+      Total: <span class="font-medium">{{ total }}</span> registros
+    </span>
+    {% if used_fallback %}
+      <span class="px-2 py-1 rounded bg-yellow-100 text-yellow-800 text-xs">
+        Fallback: nomes enriquecidos via tabela clientes
+      </span>
+    {% endif %}
+  </div>
+
+  <!-- Controles de paginação -->
+  <div class="flex items-center gap-2">
+    {% set prev_page = page - 1 %}
+    {% set next_page = page + 1 %}
+
+    <a href="{{ url_for('finadvisor.corrigir_codigos_list', page=1, page_size=page_size) }}"
+       class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">
+      « Primeira
+    </a>
+
+    <a href="{{ url_for('finadvisor.corrigir_codigos_list', page=prev_page, page_size=page_size) }}"
+       class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if page<=1 else '' }}">
+      ‹ Anterior
+    </a>
+
+    <span class="px-3 py-2 text-sm text-gray-600">
+      Página <strong>{{ page }}</strong>
+    </span>
+
+    <a href="{{ url_for('finadvisor.corrigir_codigos_list', page=next_page, page_size=page_size) }}"
+       class="px-3 py-2 rounded border text-sm hover:bg-gray-50 {{ 'pointer-events-none opacity-40' if (page*page_size) >= total else '' }}">
+      Próxima ›
+    </a>
+  </div>
+</div>
+
+<!-- Tabela de registros para correção -->
+<div class="border rounded-xl bg-white overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr>
+          <th class="text-left px-4 py-3 font-medium">Mês</th>
+          <th class="text-left px-4 py-3 font-medium">Código Atual</th>
+          <th class="text-left px-4 py-3 font-medium">Nome Cliente</th>
+          <th class="text-left px-4 py-3 font-medium">Família</th>
+          <th class="text-left px-4 py-3 font-medium">Produto</th>
+          <th class="text-right px-4 py-3 font-medium">Valor Líquido</th>
+          <th class="text-center px-4 py-3 font-medium">Ações</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {% if rows %}
+          {% for r in rows %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3">{{ r.data_ref or '—' }}</td>
+              <td class="px-4 py-3">
+                <code class="px-2 py-1 bg-gray-100 rounded text-xs">{{ r.cliente_codigo or '—' }}</code>
+              </td>
+              <td class="px-4 py-3">{{ r.cliente_nome or '—' }}</td>
+              <td class="px-4 py-3">{{ r.familia or '—' }}</td>
+              <td class="px-4 py-3">{{ r.produto or '—' }}</td>
+              <td class="px-4 py-3 text-right font-medium">{{ (r.valor_liquido or 0)|brl }}</td>
+              <td class="px-4 py-3">
+                <button
+                  onclick="abrirModalCorrecao('{{ r.id }}', '{{ r.cliente_codigo }}', '{{ r.cliente_nome or '' }}')"
+                  class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  Corrigir
+                </button>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+              Nenhum registro encontrado com o código XP: <code class="bg-gray-100 px-2 py-1 rounded">{{ codigo_xp }}</code>
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal para correção de código -->
+<div id="modalCorrecao" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-lg p-6 w-full max-w-md">
+    <h3 class="text-lg font-medium mb-4">Corrigir Código do Cliente</h3>
+
+    <form method="post" id="formCorrecao">
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Código Atual</label>
+          <input type="text" id="antigoCodigoDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-100" readonly>
+          <input type="hidden" name="antigo_codigo" id="antigoCodigoInput">
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Novo Código *</label>
+          <input type="text" name="novo_codigo" id="novoCodigoInput"
+                 class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                 required placeholder="Digite o código correto">
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nome do Cliente</label>
+          <input type="text" name="cliente_nome" id="clienteNomeInput"
+                 class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                 placeholder="Nome do cliente (opcional)">
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-6">
+        <button type="button" onclick="fecharModalCorrecao()"
+                class="flex-1 px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+          Salvar Correção
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function abrirModalCorrecao(itemId, codigoAtual, clienteNome) {
+  const modal = document.getElementById('modalCorrecao');
+  const form = document.getElementById('formCorrecao');
+
+  // Configurar action do form
+  form.action = '{{ url_for("finadvisor.corrigir_codigos_update", item_id="__ID__") }}'.replace('__ID__', itemId);
+
+  // Preencher campos
+  document.getElementById('antigoCodigoDisplay').value = codigoAtual;
+  document.getElementById('antigoCodigoInput').value = codigoAtual;
+  document.getElementById('novoCodigoInput').value = '';
+  document.getElementById('clienteNomeInput').value = clienteNome || '';
+
+  // Mostrar modal
+  modal.classList.remove('hidden');
+
+  // Focar no campo de novo código
+  setTimeout(() => {
+    document.getElementById('novoCodigoInput').focus();
+  }, 100);
+}
+
+function fecharModalCorrecao() {
+  document.getElementById('modalCorrecao').classList.add('hidden');
+}
+
+// Fechar modal ao clicar fora
+document.getElementById('modalCorrecao').addEventListener('click', function(e) {
+  if (e.target === this) {
+    fecharModalCorrecao();
+  }
+});
+
+// Fechar modal com ESC
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    fecharModalCorrecao();
+  }
+});
+</script>
+
+{% endblock %}

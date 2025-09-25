@@ -102,24 +102,76 @@ def login():
                     return render_template('login.html')
 
             else:
-                # Usuário novo - criar apenas no profiles
+                # Usuário novo - criar usuário auth.users + profile
                 try:
-                    # Gerar UUID determinístico
-                    user_id = generate_deterministic_uuid(email, codigo_xp)
+                    # 1. Verificar se já existe profile órfão para este email
+                    existing_orphan = supabase_admin.table("profiles").select("id").eq("email", email).execute()
+                    if existing_orphan.data:
+                        orphan_id = existing_orphan.data[0]["id"]
+                        current_app.logger.warning("AUTH: Removendo profile órfão para %s: %s", email, orphan_id)
 
-                    # Criar profile diretamente
-                    supabase_admin.table("profiles").insert({
-                        "id": user_id,
-                        "nome": nome,
+                        # Verificar se auth.user existe para este ID
+                        try:
+                            auth_check = supabase_admin.auth.admin.get_user_by_id(orphan_id)
+                            if not auth_check.user:
+                                # Profile órfão confirmado - deletar
+                                supabase_admin.table("profiles").delete().eq("id", orphan_id).execute()
+                                current_app.logger.info("AUTH: Profile órfão removido: %s", orphan_id)
+                        except:
+                            # auth.user não existe - deletar profile órfão
+                            supabase_admin.table("profiles").delete().eq("id", orphan_id).execute()
+                            current_app.logger.info("AUTH: Profile órfão removido: %s", orphan_id)
+
+                    # 2. Criar usuário na tabela auth.users primeiro (Supabase gera o UUID)
+                    auth_user = supabase_admin.auth.admin.create_user({
                         "email": email,
-                        "codigo_xp": codigo_xp
-                    }).execute()
+                        "email_confirm": True,
+                        "user_metadata": {
+                            "nome": nome,
+                            "codigo_xp": codigo_xp
+                        }
+                    })
 
-                    current_app.logger.info("AUTH: Novo profile criado: %s", user_id)
+                    # 3. Usar o UUID real gerado pelo Supabase
+                    user_id = auth_user.user.id
+
+                    # 4. Verificar se profile já foi criado automaticamente (trigger)
+                    # e atualizar ou criar conforme necessário
+                    existing_profile = supabase_admin.table("profiles").select("*").eq("id", user_id).execute()
+
+                    if existing_profile.data:
+                        # Profile já existe (criado por trigger) - apenas atualizar os dados
+                        supabase_admin.table("profiles").update({
+                            "nome": nome,
+                            "email": email,
+                            "codigo_xp": codigo_xp
+                        }).eq("id", user_id).execute()
+                        current_app.logger.info("AUTH: Profile existente atualizado: %s", user_id)
+                    else:
+                        # Profile não existe - criar manualmente
+                        supabase_admin.table("profiles").insert({
+                            "id": user_id,
+                            "nome": nome,
+                            "email": email,
+                            "codigo_xp": codigo_xp
+                        }).execute()
+                        current_app.logger.info("AUTH: Profile criado manualmente: %s", user_id)
+
+                    current_app.logger.info("AUTH: Novo usuário e profile configurados: %s", user_id)
                     access_token = None  # Usar SERVICE_ROLE sem token
 
                 except Exception as e:
-                    current_app.logger.error("AUTH: Falha ao criar profile: %s", e)
+                    current_app.logger.error("AUTH: Falha ao criar usuário/profile: %s", e)
+
+                    # Tentar limpar dados parciais
+                    try:
+                        if 'user_id' in locals():
+                            supabase_admin.auth.admin.delete_user(user_id)
+                            supabase_admin.table("profiles").delete().eq("id", user_id).execute()
+                            current_app.logger.info("AUTH: Cleanup realizado para user_id: %s", user_id)
+                    except Exception as cleanup_error:
+                        current_app.logger.warning("AUTH: Falha no cleanup: %s", cleanup_error)
+
                     flash('Erro ao criar conta. Tente novamente.', 'error')
                     return render_template('login.html')
 
