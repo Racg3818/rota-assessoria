@@ -9,11 +9,15 @@ CORRIGIDO: Usando tabela 'profiles' em vez de 'usuarios'
 from flask import Blueprint, render_template, current_app, session, abort
 from datetime import datetime
 from collections import defaultdict
+import hashlib
+import time
 
 try:
     from supabase_client import supabase, get_supabase_client
+    from cache_manager import cache
 except Exception:
     supabase = None
+    cache = None
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -533,10 +537,120 @@ def _calculate_user_metrics(user_id, user_email):
             "error": f"Erro: {str(e)}"
         }
 
+def _bulk_load_admin_data():
+    """Carrega todos os dados necessários em lotes para otimização"""
+    if not supabase:
+        return {}
+
+    # Cache key baseado no mês atual
+    mes_atual = datetime.now().strftime("%Y-%m")
+    cache_key = f"admin_bulk_data_{mes_atual}_{hash(str(USUARIOS_MONITORADOS))}"
+
+    # Tentar buscar do cache (válido por 5 minutos)
+    if cache:
+        try:
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                current_app.logger.info("🚀 ADMIN: Usando dados do cache")
+                return cached_data
+        except Exception as e:
+            current_app.logger.warning(f"⚠️ ADMIN: Cache read error: {e}")
+
+    mes_atual = datetime.now().strftime("%Y-%m")
+
+    try:
+        # 1. Buscar todos os usuários monitorados de uma vez
+        emails_filter = ','.join([f'"eq.{email}"' for email in USUARIOS_MONITORADOS])
+        users_res = supabase.table("profiles").select("id, email, nome").or_(f"email.in.({','.join(USUARIOS_MONITORADOS)})").execute()
+        users_map = {user['email']: user for user in (users_res.data or [])}
+
+        user_ids = [user['id'] for user in users_map.values()]
+        if not user_ids:
+            return {'users_map': users_map}
+
+        # 2. Buscar todos os clientes de uma vez
+        clientes_res = supabase.table("clientes").select("id, user_id, nome, net_total, repasse").in_("user_id", user_ids).execute()
+        clientes_by_user = defaultdict(list)
+        for cliente in (clientes_res.data or []):
+            if _to_float(cliente.get("net_total", 0)) > 0:
+                clientes_by_user[cliente['user_id']].append(cliente)
+
+        # 3. Buscar todas as alocações efetivadas de uma vez
+        alocacoes_res = supabase.table("alocacoes").select(
+            "user_id, cliente_id, valor, created_at, efetivada, produtos(classe, em_campanha, roa_pct)"
+        ).in_("user_id", user_ids).eq("efetivada", True).execute()
+        alocacoes_by_user = defaultdict(list)
+        for alocacao in (alocacoes_res.data or []):
+            alocacoes_by_user[alocacao['user_id']].append(alocacao)
+
+        # 4. Buscar todas as metas mensais de uma vez
+        metas_res = supabase.table("metas_mensais").select("user_id, meta_receita").in_("user_id", user_ids).eq("mes", mes_atual).execute()
+        metas_by_user = {meta['user_id']: _to_float(meta.get('meta_receita', 0)) for meta in (metas_res.data or [])}
+
+        # 5. Buscar todos os bônus ativos de uma vez
+        try:
+            bonus_res = supabase.table("bonus_missoes").select(
+                "user_id, valor_bonus, liquido_assessor"
+            ).in_("user_id", user_ids).eq("mes", mes_atual).eq("ativo", True).execute()
+            bonus_by_user = defaultdict(float)
+            for bonus in (bonus_res.data or []):
+                valor_bonus = _to_float(bonus.get('valor_bonus', 0))
+                liquido_assessor = bonus.get('liquido_assessor', True)
+                valor_liquido = valor_bonus if liquido_assessor else valor_bonus * 0.80
+                bonus_by_user[bonus['user_id']] += valor_liquido
+        except Exception:
+            # Fallback sem coluna liquido_assessor
+            bonus_res = supabase.table("bonus_missoes").select(
+                "user_id, valor_bonus"
+            ).in_("user_id", user_ids).eq("mes", mes_atual).eq("ativo", True).execute()
+            bonus_by_user = defaultdict(float)
+            for bonus in (bonus_res.data or []):
+                bonus_by_user[bonus['user_id']] += _to_float(bonus.get('valor_bonus', 0))
+
+        # 6. Buscar receitas recorrentes (último mês disponível por usuário)
+        receita_itens_res = supabase.table("receita_itens").select(
+            "user_id, data_ref, valor_liquido, produto, familia"
+        ).in_("user_id", user_ids).order("data_ref", desc=True).execute()
+
+        receita_by_user = defaultdict(list)
+        for item in (receita_itens_res.data or []):
+            receita_by_user[item['user_id']].append(item)
+
+        # 7. Buscar preferências de recorrência
+        prefs_res = supabase.table("user_prefs").select(
+            "user_id, value"
+        ).in_("user_id", user_ids).eq("key", "recorrencia_produtos").execute()
+        prefs_by_user = {pref['user_id']: pref.get('value') for pref in (prefs_res.data or [])}
+
+        # Dados carregados com sucesso - salvar no cache
+        bulk_data = {
+            'users_map': users_map,
+            'clientes_by_user': clientes_by_user,
+            'alocacoes_by_user': alocacoes_by_user,
+            'metas_by_user': metas_by_user,
+            'bonus_by_user': bonus_by_user,
+            'receita_by_user': receita_by_user,
+            'prefs_by_user': prefs_by_user
+        }
+
+        # Salvar no cache por 5 minutos
+        if cache:
+            try:
+                cache.set(cache_key, bulk_data, timeout=300)  # 5 minutos
+                current_app.logger.info("💾 ADMIN: Dados salvos no cache")
+            except Exception as e:
+                current_app.logger.warning(f"⚠️ ADMIN: Cache write error: {e}")
+
+        return bulk_data
+
+    except Exception as e:
+        current_app.logger.error(f"❌ ADMIN_BULK_LOAD: Erro ao carregar dados: {e}")
+        return {'error': str(e)}
+
 @admin_bp.route("/", methods=["GET"])
 @_admin_required
 def index():
-    """Tela principal administrativa com métricas consolidadas"""
+    """Tela principal administrativa com métricas consolidadas (OTIMIZADA)"""
 
     if not supabase:
         return render_template('admin/index.html',
@@ -544,55 +658,155 @@ def index():
                              usuarios_metricas=[],
                              mes_atual=datetime.now().strftime("%Y-%m"))
 
-    # DEBUG: Listar todos os usuários disponíveis na tabela
     try:
-        all_users_res = supabase.table("profiles").select("id, email, nome").execute()
-        all_users = all_users_res.data or []
-    except Exception as e:
-        current_app.logger.error(f"❌ ADMIN_DEBUG: Erro ao listar usuários: {e}")
+        # Carregar todos os dados necessários de uma vez
+        current_app.logger.info("🚀 ADMIN: Iniciando carregamento otimizado de dados")
+        bulk_data = _bulk_load_admin_data()
 
-    usuarios_metricas = []
-    mes_atual = datetime.now().strftime("%Y-%m")
+        if 'error' in bulk_data:
+            return render_template('admin/index.html',
+                                 error=f"Erro ao carregar dados: {bulk_data['error']}",
+                                 usuarios_metricas=[],
+                                 mes_atual=datetime.now().strftime("%Y-%m"))
 
-    # Buscar user_id para cada email
-    for email in USUARIOS_MONITORADOS:
-        user_data = _get_user_by_email(email)
-        user_id = user_data.get("id") if user_data else None
+        usuarios_metricas = []
+        mes_atual = datetime.now().strftime("%Y-%m")
 
+        # Processar cada usuário com dados já carregados
+        for email in USUARIOS_MONITORADOS:
+            user_data = bulk_data.get('users_map', {}).get(email)
 
-        if user_id:
-            metricas = _calculate_user_metrics(user_id, email)
-            usuarios_metricas.append(metricas)
-        else:
-            # Usuário não encontrado
+            if not user_data:
+                usuarios_metricas.append({
+                    "email": email,
+                    "user_id": None,
+                    "name": email.split("@")[0],
+                    "penetracao_xp": 0.0,
+                    "penetracao_mb": 0.0,
+                    "penetracao_total": 0.0,
+                    "meta_mes": 0.0,
+                    "receita_escritorio": 0.0,
+                    "receita_assessor": 0.0,
+                    "atingimento_pct": 0.0,
+                    "error": "Usuário não encontrado"
+                })
+                continue
+
+            user_id = user_data['id']
+            name = user_data.get('nome', email.split('@')[0])
+
+            # Dados já carregados
+            clientes = bulk_data.get('clientes_by_user', {}).get(user_id, [])
+            alocacoes = bulk_data.get('alocacoes_by_user', {}).get(user_id, [])
+            meta_mes = bulk_data.get('metas_by_user', {}).get(user_id, 0.0)
+            bonus_total = bulk_data.get('bonus_by_user', {}).get(user_id, 0.0)
+
+            # Calcular penetração rapidamente
+            total_clientes = len(clientes)
+            if total_clientes == 0:
+                penetracao_xp = penetracao_mb = penetracao_total = 0.0
+                receita_ativa = 0.0
+            else:
+                # Organizar alocações por cliente
+                clientes_alocacoes = defaultdict(list)
+                for alocacao in alocacoes:
+                    cliente_id = alocacao.get('cliente_id')
+                    produto = alocacao.get('produtos', {})
+                    classe = produto.get('classe', '')
+                    em_campanha = produto.get('em_campanha', False)
+
+                    is_mb = classe == "Renda Fixa Digital"
+                    is_xp = classe != "Renda Fixa Digital" and em_campanha
+
+                    clientes_alocacoes[cliente_id].append({'is_mb': is_mb, 'is_xp': is_xp})
+
+                # Contar penetração
+                clientes_xp = set()
+                clientes_apenas_mb = set()
+
+                for cliente_id, alocacoes_cliente in clientes_alocacoes.items():
+                    has_mb = any(a['is_mb'] for a in alocacoes_cliente)
+                    has_xp = any(a['is_xp'] for a in alocacoes_cliente)
+
+                    if has_xp:
+                        clientes_xp.add(cliente_id)
+                    elif has_mb and not has_xp:
+                        clientes_apenas_mb.add(cliente_id)
+
+                penetracao_xp = (len(clientes_xp) / total_clientes * 100)
+                penetracao_mb = (len(clientes_apenas_mb) / total_clientes * 100)
+                penetracao_total = penetracao_xp + penetracao_mb
+
+                # Calcular receita ativa do mês
+                receita_ativa = 0.0
+                for alocacao in alocacoes:
+                    created_at = alocacao.get('created_at', '')
+                    if created_at.startswith(mes_atual):
+                        valor = _to_float(alocacao.get('valor', 0))
+                        produto = alocacao.get('produtos', {})
+                        roa_pct = _to_float(produto.get('roa_pct', 0))
+                        receita_ativa += valor * (roa_pct / 100.0)
+
+            # Receita escritório simplificada (só ativa + bônus para performance)
+            receita_escritorio = receita_ativa + bonus_total
+
+            # Receita assessor simplificada
+            if not clientes or receita_escritorio <= 0:
+                receita_assessor = 0.0
+            else:
+                total_net = sum(_to_float(c.get("net_total", 0)) for c in clientes)
+                total_net_ponderado = sum(
+                    _to_float(c.get("net_total", 0)) * _to_float(c.get("repasse", 0)) / 100.0
+                    for c in clientes if _to_float(c.get("net_total", 0)) > 0
+                )
+
+                if total_net > 0 and total_net_ponderado > 0:
+                    media_ponderada_repasse = total_net_ponderado / total_net
+                    receita_assessor = receita_escritorio * 0.80 * media_ponderada_repasse + bonus_total
+                else:
+                    receita_assessor = 0.0
+
+            # Atingimento
+            atingimento_pct = (receita_escritorio / meta_mes * 100) if meta_mes > 0 else 0.0
+
             usuarios_metricas.append({
                 "email": email,
-                "user_id": None,
-                "name": email.split("@")[0],
-                "penetracao_xp": 0.0,
-                "penetracao_mb": 0.0,
-                "penetracao_total": 0.0,
-                "meta_mes": 0.0,
-                "receita_escritorio": 0.0,
-                "receita_assessor": 0.0,
-                "atingimento_pct": 0.0,
-                "error": "Usuário não encontrado"
+                "user_id": user_id,
+                "name": name,
+                "penetracao_xp": penetracao_xp,
+                "penetracao_mb": penetracao_mb,
+                "penetracao_total": penetracao_total,
+                "meta_mes": meta_mes,
+                "receita_escritorio": receita_escritorio,
+                "receita_assessor": receita_assessor,
+                "atingimento_pct": atingimento_pct,
+                "total_clientes": total_clientes,
+                "xp_count": len(clientes_xp) if 'clientes_xp' in locals() else 0,
+                "mb_count": len(clientes_apenas_mb) if 'clientes_apenas_mb' in locals() else 0
             })
 
-    # Ordenar por nome para exibição consistente
-    usuarios_metricas.sort(key=lambda x: x.get("name", "").lower())
+        # Ordenar e calcular totais
+        usuarios_metricas.sort(key=lambda x: x.get("name", "").lower())
 
-    # Calcular totais consolidados
-    total_receita_escritorio = sum(u.get("receita_escritorio", 0) for u in usuarios_metricas)
-    total_receita_assessor = sum(u.get("receita_assessor", 0) for u in usuarios_metricas)
-    total_meta = sum(u.get("meta_mes", 0) for u in usuarios_metricas)
-    atingimento_geral = (total_receita_escritorio / total_meta * 100) if total_meta > 0 else 0.0
+        total_receita_escritorio = sum(u.get("receita_escritorio", 0) for u in usuarios_metricas)
+        total_receita_assessor = sum(u.get("receita_assessor", 0) for u in usuarios_metricas)
+        total_meta = sum(u.get("meta_mes", 0) for u in usuarios_metricas)
+        atingimento_geral = (total_receita_escritorio / total_meta * 100) if total_meta > 0 else 0.0
 
-    return render_template('admin/index.html',
-                         usuarios_metricas=usuarios_metricas,
-                         mes_atual=mes_atual,
-                         total_receita_escritorio=total_receita_escritorio,
-                         total_receita_assessor=total_receita_assessor,
-                         total_meta=total_meta,
-                         atingimento_geral=atingimento_geral,
-                         total_usuarios=len(usuarios_metricas))
+        current_app.logger.info(f"✅ ADMIN: Dados carregados com sucesso para {len(usuarios_metricas)} usuários")
+
+        return render_template('admin/index.html',
+                             usuarios_metricas=usuarios_metricas,
+                             mes_atual=mes_atual,
+                             total_receita_escritorio=total_receita_escritorio,
+                             total_receita_assessor=total_receita_assessor,
+                             total_meta=total_meta,
+                             atingimento_geral=atingimento_geral,
+                             total_usuarios=len(usuarios_metricas))
+
+    except Exception as e:
+        current_app.logger.error(f"❌ ADMIN: Erro geral: {e}")
+        return render_template('admin/index.html',
+                             error=f"Erro interno: {str(e)}",
+                             usuarios_metricas=[],
+                             mes_atual=datetime.now().strftime("%Y-%m"))
