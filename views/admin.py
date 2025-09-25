@@ -77,12 +77,15 @@ def _get_user_by_email(email):
         current_app.logger.error(f"Erro buscando usuário {email}: {e}")
         return None
 
-def _calculate_receita_escritorio_ativa(user_id):
-    """EXATA função do Dashboard _receita_escritorio_mes_atual_via_alocacoes adaptada para admin"""
+def _receita_escritorio_mes_atual_via_alocacoes_admin(user_id):
+    """
+    EXATA função do Dashboard _receita_escritorio_mes_atual_via_alocacoes
+    adaptada para admin (com user_id específico)
+    """
     if not supabase:
         return 0.0
 
-    mes_atual = datetime.now().strftime("%Y-%m")
+    mes_atual = datetime.today().strftime("%Y-%m")
     total = 0.0
 
     try:
@@ -115,10 +118,17 @@ def _calculate_receita_escritorio_ativa(user_id):
         receita_item = valor * (roa_pct / 100.0)
         total += receita_item
 
+        current_app.logger.debug("ADMIN_RECEITA_ATIVA: Valor=%.2f × ROA=%.2f%% = Receita=%.2f",
+                                valor, roa_pct, receita_item)
+
+    current_app.logger.info("ADMIN_RECEITA_ATIVA_TOTAL: %.2f (de %d alocações analisadas) - user_id: %s",
+                           total, len(rows), user_id)
     return total
 
-def _calculate_receita_assessor_recorrente(user_id):
-    """EXATA função do Dashboard _receita_assessor_recorrente adaptada para admin"""
+def _receita_assessor_recorrente_admin(user_id):
+    """
+    EXATA função do Dashboard _receita_assessor_recorrente adaptada para admin
+    """
     if not supabase:
         return 0.0
 
@@ -126,11 +136,15 @@ def _calculate_receita_assessor_recorrente(user_id):
 
     try:
         # Buscar o último mês com dados na tabela
-        res_meses = supabase.table("receita_itens").select(
-            "data_ref"
-        ).eq("user_id", user_id).order("data_ref", desc=True).limit(1).execute()
+        res_meses = (supabase.table("receita_itens")
+                    .select("data_ref")
+                    .eq("user_id", user_id)
+                    .order("data_ref", desc=True)
+                    .limit(1)
+                    .execute())
 
         if not res_meses.data:
+            current_app.logger.info("ADMIN_RECEITA_PASSIVA: Nenhum dado encontrado na tabela receita_itens para user_id: %s", user_id)
             return 0.0
 
         ultimo_mes_disponivel = res_meses.data[0].get("data_ref", "")
@@ -139,6 +153,9 @@ def _calculate_receita_assessor_recorrente(user_id):
 
         # Extrair YYYY-MM do último mês
         mes_target = ultimo_mes_disponivel[:7]  # YYYY-MM
+
+        current_app.logger.info("ADMIN_RECEITA_PASSIVA: Último mês disponível: %s (extraído: %s) - user_id: %s",
+                               ultimo_mes_disponivel, mes_target, user_id)
 
         # Buscar email do usuário para as preferências
         user_data = supabase.table("profiles").select("email").eq("id", user_id).limit(1).execute()
@@ -170,12 +187,18 @@ def _calculate_receita_assessor_recorrente(user_id):
             elif isinstance(categorias_value, list):
                 selected_set = set(categorias_value)
 
+        current_app.logger.info("ADMIN_RECEITA_PASSIVA: Produtos selecionados como recorrentes: %s - user_id: %s",
+                               list(selected_set), user_id)
+
         # Buscar receitas do último mês disponível
         res_receitas = supabase.table("receita_itens").select(
             "valor_liquido, produto, familia"
         ).eq("user_id", user_id).like("data_ref", f"{mes_target}%").execute()
 
         total_passiva = 0.0
+        items_processados = 0
+        items_recorrentes = 0
+        items_admin_ignorados = 0
 
         # Função para verificar família administrativa (mesma do Dashboard)
         def _is_admin_family(fam):
@@ -183,12 +206,14 @@ def _calculate_receita_assessor_recorrente(user_id):
             return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
 
         for receita in res_receitas.data or []:
+            items_processados += 1
             produto = (receita.get("produto") or "").strip()
             familia = (receita.get("familia") or "").strip()
             val_liq = _to_float(receita.get("valor_liquido"))
 
             # Pular família administrativa
             if _is_admin_family(familia):
+                items_admin_ignorados += 1
                 continue
 
             # Lógica EXATA do Dashboard
@@ -197,133 +222,229 @@ def _calculate_receita_assessor_recorrente(user_id):
             if not produto_presente:
                 # Se não tem produto, conta como recorrente
                 total_passiva += val_liq
+                items_recorrentes += 1
+                current_app.logger.debug("ADMIN_RECEITA_PASSIVA: Sem produto -> recorrente: R$ %.2f", val_liq)
             else:
                 # Se tem produto, só conta se estiver nas categorias selecionadas
                 if not selected_set or (produto in selected_set):
                     total_passiva += val_liq
+                    items_recorrentes += 1
+                    current_app.logger.debug("ADMIN_RECEITA_PASSIVA: Produto %s -> recorrente: R$ %.2f", produto, val_liq)
+
+        current_app.logger.info("ADMIN_RECEITA_PASSIVA: Processados=%d, Recorrentes=%d, Admin ignorados=%d, Total=R$ %.2f - user_id: %s",
+                               items_processados, items_recorrentes, items_admin_ignorados, total_passiva, user_id)
 
         return total_passiva
 
     except Exception as e:
-        current_app.logger.error(f"Erro calculando receita assessor recorrente para user_id {user_id}: {e}")
+        current_app.logger.error("ADMIN_RECEITA_PASSIVA: Erro para user_id %s: %s", user_id, e)
         return 0.0
 
-def _calculate_receita_escritorio_recorrente(user_id, clientes):
-    """EXATA função do Dashboard _receita_escritorio_recorrente"""
-    receita_assessor_rec = _calculate_receita_assessor_recorrente(user_id)
+def _receita_escritorio_recorrente_admin(clientes, user_id):
+    """
+    EXATA função do Dashboard _receita_escritorio_recorrente adaptada para admin
+    """
+    receita_assessor_rec = _receita_assessor_recorrente_admin(user_id)
+
+    current_app.logger.info("ADMIN_RECEITA_ESCRIT_REC: Receita assessor recorrente = %.2f - user_id: %s",
+                           receita_assessor_rec, user_id)
 
     if receita_assessor_rec <= 0:
+        current_app.logger.warning("ADMIN_RECEITA_ESCRIT_REC: Receita assessor recorrente = 0, retornando 0 - user_id: %s", user_id)
         return 0.0
 
     if not clientes:
+        current_app.logger.warning("ADMIN_RECEITA_ESCRIT_REC: Sem clientes para calcular média ponderada - user_id: %s", user_id)
+        return 0.0
+
+    # Verificar se campo repasse existe nos clientes
+    if 'repasse' not in clientes[0]:
+        current_app.logger.error("ADMIN_RECEITA_ESCRIT_REC: Campo 'repasse' não encontrado nos clientes! - user_id: %s", user_id)
         return 0.0
 
     # Calcular média ponderada (mesmo cálculo usado em _receita_assessor_mes)
     total_net = 0.0
     total_net_ponderado = 0.0
+    clientes_com_net = 0
+    clientes_com_repasse = 0
 
-    for cliente in clientes:
-        net_total = _to_float(cliente.get("net_total", 0))
-        repasse = _to_float(cliente.get("repasse", 0))
+    for i, cliente in enumerate(clientes):
+        net_total = _to_float(cliente.get("net_total"))
+        repasse = _to_float(cliente.get("repasse"))
+        nome = cliente.get("nome", "N/A")[:30]
 
         if net_total > 0:
+            clientes_com_net += 1
             total_net += net_total
             if repasse > 0:
-                contribution = net_total * repasse / 100.0
-                total_net_ponderado += contribution
+                clientes_com_repasse += 1
+                ponderado_cliente = (net_total * repasse / 100.0)
+                total_net_ponderado += ponderado_cliente
 
-    if total_net == 0 or total_net_ponderado == 0:
+                # Debug apenas dos primeiros 3 clientes
+                if i < 3:
+                    current_app.logger.info("ADMIN_RECEITA_ESCRIT_REC: Cliente %d: %s - NET=%.2f, repasse=%.2f%%, ponderado=%.2f - user_id: %s",
+                                           i+1, nome, net_total, repasse, ponderado_cliente, user_id)
+
+    current_app.logger.info("ADMIN_RECEITA_ESCRIT_REC: %d clientes total, %d com NET>0, %d com repasse>0 - user_id: %s",
+                           len(clientes), clientes_com_net, clientes_com_repasse, user_id)
+
+    if total_net == 0:
+        current_app.logger.warning("ADMIN_RECEITA_ESCRIT_REC: Nenhum cliente com NET > 0 - user_id: %s", user_id)
         return 0.0
 
-    # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
+    if total_net_ponderado == 0:
+        current_app.logger.warning("ADMIN_RECEITA_ESCRIT_REC: Total NET ponderado = 0 - user_id: %s", user_id)
+        return 0.0
+
     media_ponderada_repasse = total_net_ponderado / total_net
+
+    # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
     receita_escritorio_rec = receita_assessor_rec / 0.80 / media_ponderada_repasse
+
+    current_app.logger.info("ADMIN_RECEITA_ESCRIT_REC: %.2f ÷ 80%% ÷ %.4f = %.2f - user_id: %s",
+                           receita_assessor_rec, media_ponderada_repasse, receita_escritorio_rec, user_id)
 
     return receita_escritorio_rec
 
-def _calculate_bonus_ativo(user_id, mes_atual):
-    """EXATA função do Dashboard _carregar_bonus_ativo_mes adaptada para admin"""
+def _carregar_bonus_ativo_mes_admin(user_id):
+    """
+    EXATA função do Dashboard _carregar_bonus_ativo_mes adaptada para admin
+    """
     if not supabase or not user_id:
         return 0.0
 
     def _calcular_valor_liquido_bonus(valor_bonus, liquido_assessor):
-        """Função auxiliar para calcular valor líquido do bônus"""
+        """
+        Calcula o valor líquido do bônus para o assessor.
+        Se liquido_assessor = True: retorna o valor como está
+        Se liquido_assessor = False: aplica 80% (desconta 20% de IR)
+        """
         if liquido_assessor:
             return valor_bonus
         else:
             return valor_bonus * 0.80
 
+    mes_atual = datetime.now().strftime("%Y-%m")
     total_bonus = 0.0
 
     try:
         # Tentar com colunas novas primeiro
         try:
-            resp = supabase.table("bonus_missoes").select(
-                "valor_bonus, liquido_assessor"
-            ).eq("user_id", user_id).eq("mes", mes_atual).eq("ativo", True).execute()
-
+            resp = supabase.table("bonus_missoes").select("valor_bonus, liquido_assessor").eq("user_id", user_id).eq("mes", mes_atual).eq("ativo", True).execute()
             bonus_list = resp.data or []
             total_bonus = sum(
                 _calcular_valor_liquido_bonus(
-                    _to_float(b.get("valor_bonus", 0)),
+                    b.get("valor_bonus", 0),
                     b.get("liquido_assessor", True)
                 )
                 for b in bonus_list
             )
         except Exception:
             # Fallback para apenas valor_bonus (sem cálculo de IR)
-            resp = supabase.table("bonus_missoes").select(
-                "valor_bonus"
-            ).eq("user_id", user_id).eq("mes", mes_atual).eq("ativo", True).execute()
-
+            resp = supabase.table("bonus_missoes").select("valor_bonus").eq("user_id", user_id).eq("mes", mes_atual).eq("ativo", True).execute()
             bonus_list = resp.data or []
             total_bonus = sum(_to_float(b.get("valor_bonus", 0)) for b in bonus_list)
+            current_app.logger.warning("ADMIN_BONUS: Usando fallback (campos novos não disponíveis) - user_id: %s", user_id)
 
+        current_app.logger.info("ADMIN_BONUS: Total bônus ativo do mês: R$ %.2f - user_id: %s", total_bonus, user_id)
     except Exception as e:
-        current_app.logger.warning(f"Erro ao carregar bônus para user_id {user_id}: {e}")
-        total_bonus = 0.0
+        current_app.logger.warning("ADMIN_BONUS: Erro ao carregar bônus para user_id %s: %s", user_id, e)
 
     return total_bonus
 
-def _calculate_receita_escritorio(user_id, clientes):
-    """EXATA função do Dashboard _receita_escritorio_total_mes"""
-    receita_ativa = _calculate_receita_escritorio_ativa(user_id)
-    receita_recorrente = _calculate_receita_escritorio_recorrente(user_id, clientes)
-    mes_atual = datetime.now().strftime("%Y-%m")
-    bonus_ativo = _calculate_bonus_ativo(user_id, mes_atual)
+def _receita_escritorio_total_mes_admin(clientes, user_id):
+    """
+    EXATA função do Dashboard _receita_escritorio_total_mes adaptada para admin
+    Calcula a receita total do escritório no mês atual:
+    Receita Ativa (alocações EFETIVADAS) + Receita Recorrente (calculada a partir da receita assessor) + Bônus
+    """
+    receita_ativa = _receita_escritorio_mes_atual_via_alocacoes_admin(user_id)
+    receita_recorrente = _receita_escritorio_recorrente_admin(clientes, user_id)
+    bonus_ativo = _carregar_bonus_ativo_mes_admin(user_id)
 
     total = receita_ativa + receita_recorrente + bonus_ativo
+
+    current_app.logger.info("ADMIN_RECEITA_ESCRIT_TOTAL: Ativa=%.2f (alocações) + Recorrente=%.2f + Bônus=%.2f = Total=%.2f - user_id: %s",
+                           receita_ativa, receita_recorrente, bonus_ativo, total, user_id)
+
     return total
 
-def _calculate_receita_assessor(receita_escritorio, clientes, user_id):
-    """EXATA função do Dashboard _receita_assessor_mes - INCLUI BÔNUS"""
-    if not clientes or receita_escritorio <= 0:
+def _receita_assessor_mes_admin(receita_escritorio: float, clientes, user_id):
+    """
+    EXATA função do Dashboard _receita_assessor_mes adaptada para admin
+    Calcula a receita do assessor no mês usando a fórmula:
+    Receita Assessor = Receita Escritório × 80% × (Média Ponderada do NET × Repasse)
+    Média Ponderada = Σ(NET_cliente × Repasse_cliente) / Σ(NET_cliente)
+    """
+    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: Iniciando cálculo - Receita Escritório: %.2f, Clientes: %d - user_id: %s",
+                           receita_escritorio, len(clientes) if clientes else 0, user_id)
+
+    if not clientes:
+        current_app.logger.warning("ADMIN_RECEITA_ASSESSOR: Lista de clientes vazia - user_id: %s", user_id)
+        return 0.0
+
+    if receita_escritorio <= 0:
+        current_app.logger.warning("ADMIN_RECEITA_ASSESSOR: Receita escritório <= 0: %.2f - user_id: %s", receita_escritorio, user_id)
         return 0.0
 
     total_net = 0.0
     total_net_ponderado = 0.0
+    clientes_validos = 0
+    clientes_sem_repasse = 0
 
-    for cliente in clientes:
-        net_total = _to_float(cliente.get("net_total", 0))
-        repasse = _to_float(cliente.get("repasse", 0))
-
-        if net_total > 0:
-            total_net += net_total
-            if repasse > 0:
-                contribution = net_total * repasse / 100.0
-                total_net_ponderado += contribution
-
-    if total_net == 0 or total_net_ponderado == 0:
+    # Verificar se campo repasse existe nos clientes
+    if clientes and 'repasse' not in clientes[0]:
+        current_app.logger.error("ADMIN_RECEITA_ASSESSOR: Campo 'repasse' não encontrado nos clientes! - user_id: %s", user_id)
         return 0.0
 
-    # Fórmula base: Receita Escritório × 80% × (Média Ponderada do NET × Repasse)
-    media_ponderada_repasse = total_net_ponderado / total_net
-    receita_assessor_base = receita_escritorio * 0.80 * media_ponderada_repasse
+    for i, cliente in enumerate(clientes):
+        nome = cliente.get("nome", "Sem nome")[:30]  # Primeiros 30 chars
+        net_total = _to_float(cliente.get("net_total"))
+        repasse = _to_float(cliente.get("repasse"))
 
-    # Adicionar bônus ativos do mês (MESMA LÓGICA DO DASHBOARD)
-    mes_atual = datetime.now().strftime("%Y-%m")
-    bonus_ativo = _calculate_bonus_ativo(user_id, mes_atual)
+        if net_total > 0:
+            clientes_validos += 1
+            total_net += net_total
+
+            if repasse > 0:
+                ponderado = net_total * (repasse / 100.0)
+                total_net_ponderado += ponderado
+
+                # Debug apenas dos primeiros 3 clientes
+                if i < 3:
+                    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: Cliente %d: %s - NET: %.2f, Repasse: %.2f%%, Ponderado: %.2f - user_id: %s",
+                                           i+1, nome, net_total, repasse, ponderado, user_id)
+            else:
+                clientes_sem_repasse += 1
+
+    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: %d clientes válidos (NET > 0), %d sem repasse - user_id: %s",
+                           clientes_validos, clientes_sem_repasse, user_id)
+
+    if total_net <= 0:
+        current_app.logger.warning("ADMIN_RECEITA_ASSESSOR: Total NET <= 0 - user_id: %s", user_id)
+        return 0.0
+
+    if total_net_ponderado <= 0:
+        current_app.logger.warning("ADMIN_RECEITA_ASSESSOR: Total ponderado <= 0. Todos os clientes estão sem repasse? - user_id: %s", user_id)
+        return 0.0
+
+    # Calcular média ponderada
+    media_ponderada = total_net_ponderado / total_net
+
+    # Fórmula base (sem bônus)
+    receita_assessor_base = receita_escritorio * 0.80 * media_ponderada
+
+    # Adicionar bônus ativos do mês (EXATAMENTE como no Dashboard)
+    bonus_ativo = _carregar_bonus_ativo_mes_admin(user_id)
     receita_assessor = receita_assessor_base + bonus_ativo
+
+    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: Total NET: %.2f, Ponderado: %.2f, Média: %.4f (%.2f%%) - user_id: %s",
+                           total_net, total_net_ponderado, media_ponderada, media_ponderada * 100, user_id)
+    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: Base: %.2f × 80%% × %.4f = %.2f - user_id: %s",
+                           receita_escritorio, media_ponderada, receita_assessor_base, user_id)
+    current_app.logger.info("ADMIN_RECEITA_ASSESSOR: Bônus ativo: R$ %.2f | Receita total: R$ %.2f - user_id: %s",
+                           bonus_ativo, receita_assessor, user_id)
 
     return receita_assessor
 
@@ -455,10 +576,8 @@ def _calculate_user_metrics(user_id, user_email):
 
         meta_mes = _to_float(meta_res.data[0].get("meta_receita", 0)) if meta_res.data else 0.0
 
-        # Calcular receita usando a mesma lógica do Dashboard
-
-        # Receita Escritório: usando lógica do Dashboard
-        receita_escritorio = _calculate_receita_escritorio(user_id, clientes)
+        # Calcular receita usando EXATAMENTE a mesma lógica do Dashboard
+        receita_escritorio = _receita_escritorio_total_mes_admin(clientes, user_id)
 
         # DEBUG: Log detalhado dos componentes da receita escritório
         current_app.logger.info(f"🔍 ADMIN_DEBUG {user_email}: Receita Escritório Total = {receita_escritorio:.2f}")
@@ -493,8 +612,8 @@ def _calculate_user_metrics(user_id, user_email):
         except Exception as debug_e:
             current_app.logger.error(f"❌ ADMIN_DEBUG {user_email}: Erro no debug: {debug_e}")
 
-        # Receita Assessor: usando lógica do Dashboard (inclui bônus)
-        receita_assessor = _calculate_receita_assessor(receita_escritorio, clientes, user_id)
+        # Receita Assessor: usando EXATAMENTE a lógica do Dashboard
+        receita_assessor = _receita_assessor_mes_admin(receita_escritorio, clientes, user_id)
 
 
         # Calcular atingimento
@@ -647,142 +766,7 @@ def _bulk_load_admin_data():
         current_app.logger.error(f"❌ ADMIN_BULK_LOAD: Erro ao carregar dados: {e}")
         return {'error': str(e)}
 
-def _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data):
-    """
-    Calcula receita escritório recorrente usando dados já carregados em bulk
-    EXATA mesma lógica do Dashboard, mas otimizada
-    """
-    if not clientes:
-        return 0.0
-
-    # Buscar receitas do usuário dos dados bulk
-    receitas = bulk_data.get('receita_by_user', {}).get(user_id, [])
-    if not receitas:
-        return 0.0
-
-    # Encontrar o último mês disponível (mas NÃO o mês atual para evitar duplicação)
-    mes_atual = datetime.now().strftime("%Y-%m")
-    meses_disponiveis = [
-        r.get('data_ref', '')[:7]
-        for r in receitas
-        if r.get('data_ref') and r.get('data_ref', '')[:7] != mes_atual
-    ]
-
-    if not meses_disponiveis:
-        return 0.0
-
-    ultimo_mes = max(meses_disponiveis)
-
-    # Buscar preferências de recorrência
-    import json
-    prefs_value = bulk_data.get('prefs_by_user', {}).get(user_id)
-    selected_set = set()
-
-    if prefs_value:
-        if isinstance(prefs_value, str):
-            try:
-                categorias = json.loads(prefs_value)
-                selected_set = set(categorias)
-            except:
-                pass
-        elif isinstance(prefs_value, list):
-            selected_set = set(prefs_value)
-
-    # Calcular receita passiva do último mês
-    receita_assessor_recorrente = 0.0
-
-    def _is_admin_family(fam):
-        fam_lower = fam.lower()
-        return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
-
-    for receita in receitas:
-        data_ref = receita.get('data_ref', '')
-        if not data_ref.startswith(ultimo_mes):
-            continue
-
-        produto = (receita.get("produto") or "").strip()
-        familia = (receita.get("familia") or "").strip()
-        val_liq = _to_float(receita.get("valor_liquido"))
-
-        # Pular família administrativa
-        if _is_admin_family(familia):
-            continue
-
-        # Lógica EXATA do Dashboard
-        produto_presente = bool(produto)
-
-        if not produto_presente:
-            # Se não tem produto, conta como recorrente
-            receita_assessor_recorrente += val_liq
-        else:
-            # Se tem produto, só conta se estiver nas categorias selecionadas
-            if not selected_set or (produto in selected_set):
-                receita_assessor_recorrente += val_liq
-
-    if receita_assessor_recorrente <= 0:
-        return 0.0
-
-    # Calcular média ponderada dos clientes (mesma lógica do Dashboard)
-    total_net = 0.0
-    total_net_ponderado = 0.0
-
-    for cliente in clientes:
-        net_total = _to_float(cliente.get("net_total", 0))
-        repasse = _to_float(cliente.get("repasse", 0))
-
-        if net_total > 0:
-            total_net += net_total
-            if repasse > 0:
-                contribution = net_total * repasse / 100.0
-                total_net_ponderado += contribution
-
-    if total_net == 0 or total_net_ponderado == 0:
-        return 0.0
-
-    # Fórmula inversa: Receita Escritório = Receita Assessor ÷ 80% ÷ Média Ponderada
-    media_ponderada_repasse = total_net_ponderado / total_net
-    receita_escritorio_recorrente = receita_assessor_recorrente / 0.80 / media_ponderada_repasse
-
-    return receita_escritorio_recorrente
-
-def _calculate_receita_ativa_mes_atual(user_id, bulk_data):
-    """
-    Calcula receita ativa do mês atual usando receita_itens (não apenas alocações)
-    Inclui TODA a receita do mês: alocações + importações FinAdvisor
-    """
-    mes_atual = datetime.now().strftime("%Y-%m")
-
-    # Buscar receitas do usuário dos dados bulk
-    receitas = bulk_data.get('receita_by_user', {}).get(user_id, [])
-    if not receitas:
-        return 0.0
-
-    receita_ativa_total = 0.0
-
-    # Função para identificar família administrativa (mesma lógica do Dashboard)
-    def _is_admin_family(fam):
-        fam_lower = fam.lower()
-        return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
-
-    # Somar TODA a receita do mês atual (comissao_escritorio)
-    for receita in receitas:
-        data_ref = receita.get('data_ref', '')
-
-        # Verificar se é do mês atual (YYYY-MM)
-        if not data_ref.startswith(mes_atual):
-            continue
-
-        familia = (receita.get("familia") or "").strip()
-
-        # Pular famílias administrativas
-        if _is_admin_family(familia):
-            continue
-
-        # Somar comissão escritório (receita ativa)
-        comissao_escritorio = _to_float(receita.get("comissao_escritorio"))
-        receita_ativa_total += comissao_escritorio
-
-    return receita_ativa_total
+# Funções bulk removidas - usando diretamente as funções do Dashboard para garantir consistência
 
 @admin_bp.route("/", methods=["GET"])
 @_admin_required
@@ -874,33 +858,9 @@ def index():
                 penetracao_mb = (len(clientes_apenas_mb) / total_clientes * 100)
                 penetracao_total = penetracao_xp + penetracao_mb
 
-                # Calcular receita ativa do mês atual (de receita_itens, não só alocações)
-                receita_ativa = _calculate_receita_ativa_mes_atual(user_id, bulk_data)
-
-            # Calcular receita passiva/recorrente
-            receita_recorrente = _calculate_receita_escritorio_recorrente_bulk(user_id, clientes, bulk_data)
-
-            # Receita escritório COMPLETA: ativa + recorrente + bônus
-            receita_escritorio = receita_ativa + receita_recorrente + bonus_total
-
-            # Receita assessor COMPLETA (mesma lógica do Dashboard)
-            if not clientes or receita_escritorio <= 0:
-                receita_assessor = 0.0
-            else:
-                total_net = sum(_to_float(c.get("net_total", 0)) for c in clientes)
-                total_net_ponderado = sum(
-                    _to_float(c.get("net_total", 0)) * _to_float(c.get("repasse", 0)) / 100.0
-                    for c in clientes if _to_float(c.get("net_total", 0)) > 0
-                )
-
-                if total_net > 0 and total_net_ponderado > 0:
-                    media_ponderada_repasse = total_net_ponderado / total_net
-                    # Base: (Receita Ativa + Receita Recorrente) * 80% * Média Ponderada
-                    receita_assessor_base = (receita_ativa + receita_recorrente) * 0.80 * media_ponderada_repasse
-                    # Total: Base + Bônus (bônus não multiplica pela média ponderada)
-                    receita_assessor = receita_assessor_base + bonus_total
-                else:
-                    receita_assessor = bonus_total  # Só bônus se não tem clientes
+                # Usar EXATAMENTE as mesmas funções do Dashboard
+                receita_escritorio = _receita_escritorio_total_mes_admin(clientes, user_id)
+                receita_assessor = _receita_assessor_mes_admin(receita_escritorio, clientes, user_id)
 
             # Atingimento
             atingimento_pct = (receita_escritorio / meta_mes * 100) if meta_mes > 0 else 0.0
