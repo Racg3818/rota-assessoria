@@ -67,9 +67,7 @@ def create_app():
         except:
             pass
 
-        app.logger.error("📱 ACESSO PÁGINA: %s | User: %s (%s) | IP: %s",
-                        request.path, user_id or "NONE", user_email,
-                        request.remote_addr)
+        # Removido log excessivo de acesso à página - gera muito ruído nos logs
 
     # 🚨 SEGURANÇA CRÍTICA: Inicializar middleware de proteção
     init_security_middleware(app)

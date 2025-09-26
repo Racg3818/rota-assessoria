@@ -1034,9 +1034,14 @@
                     <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Receita (histórico)</span>
                 </a>
                 
-                <a href="/clientes" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 {% if request.path.startswith('/clientes') %}active{% endif %}">
+                <a href="/clientes" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 {% if request.path.startswith('/clientes') and not request.path.startswith('/clientes/supernova') %}active{% endif %}">
                     <div class="w-5 h-5 flex-shrink-0">👤</div>
-                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Clientes</span>                    
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Clientes</span>
+                </a>
+
+                <a href="/clientes/supernova" class="nav-item flex items-center gap-3 px-4 py-3 ml-6 rounded-xl text-gray-600 hover:bg-gray-50 text-sm {% if request.path.startswith('/clientes/supernova') %}active{% endif %}">
+                    <div class="w-4 h-4 flex-shrink-0">⭐</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200">Supernova</span>
                 </a>
                 
                 <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">

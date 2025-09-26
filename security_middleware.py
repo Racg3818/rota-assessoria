@@ -22,11 +22,12 @@ def get_current_user_id():
     user_id = user.get("id") or user.get("supabase_user_id")
 
     if not user_id:
+        from flask import current_app
+        if current_app:
+            current_app.logger.error("❌ USER_ID É NONE - Usuário não autenticado ou sessão inválida")
         return None
 
-    from flask import current_app
-    if current_app:
-        current_app.logger.debug("USER_ID da sessão: %s", user_id)
+    # Removido log desnecessário de user_id em cada requisição
 
     return user_id
 

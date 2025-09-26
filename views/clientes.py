@@ -6,6 +6,7 @@ import io
 import csv
 from typing import List, Dict
 from cache_manager import cached_by_user, invalidate_user_cache
+from datetime import datetime
 
 # Se o NET total estiver salvo em centavos no banco, defina NET_TOTAL_IN_CENTS=1 no .env
 NET_TOTAL_IN_CENTS = os.getenv("NET_TOTAL_IN_CENTS", "0").lower() in ("1", "true", "yes")
@@ -703,3 +704,355 @@ def importar_em_massa():
         flash("Falha ao importar clientes. Verifique o arquivo e tente novamente.", "error")
 
     return redirect(url_for("clientes.importar_em_massa"))
+
+@clientes_bp.route('/supernova')
+@login_required
+def supernova():
+    """Tela Supernova: lista clientes com nome e data da última supernova"""
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return render_template('clientes/supernova.html',
+                             clientes_supernova=[],
+                             filtros={"letra": ""},
+                             letras_ordenadas=[])
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return render_template('clientes/supernova.html',
+                             clientes_supernova=[],
+                             filtros={"letra": ""},
+                             letras_ordenadas=[])
+
+    # ── filtros vindos da URL ──────────────────────────────────────────────
+    letra_filter = (request.args.get('letra') or '').strip()        # primeira letra do nome
+    urgencia_filter = (request.args.get('urgencia') or '').strip()  # nível de urgência
+    mes_filter = (request.args.get('mes') or '').strip()            # mês da última supernova
+
+    try:
+        # Buscar todos os clientes do usuário
+        res_clientes = supabase.table("clientes").select("id, nome").eq("user_id", uid).execute()
+        clientes = res_clientes.data or []
+
+        # Aplicar filtro por primeira letra do nome, se houver
+        if letra_filter and letra_filter.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            letra_upper = letra_filter.upper()
+            clientes = [
+                c for c in clientes
+                if (c.get("nome") or "").strip().upper().startswith(letra_upper)
+            ]
+
+        # Gerar lista de letras disponíveis (buscar todas as primeiras letras dos clientes)
+        try:
+            all_res = supabase.table("clientes").select("nome").eq("user_id", uid).execute()
+            all_clientes = all_res.data or []
+            letras_disponiveis = set()
+            for c in all_clientes:
+                nome = (c.get("nome") or "").strip()
+                if nome:
+                    primeira_letra = nome[0].upper()
+                    if primeira_letra.isalpha():
+                        letras_disponiveis.add(primeira_letra)
+            letras_ordenadas = sorted(list(letras_disponiveis))
+        except Exception:
+            letras_ordenadas = []
+
+        clientes_supernova = []
+        for cliente in clientes:
+            cliente_id = cliente.get('id')
+            nome_cliente = cliente.get('nome', '')
+
+            # Buscar a data da última supernova para este cliente
+            # Tabela 'supernovas' com campos: cliente_id, data_supernova, observacoes, user_id
+            try:
+                res_supernova = (supabase.table("supernovas")
+                               .select("data_supernova, observacoes")
+                               .eq("cliente_id", cliente_id)
+                               .eq("user_id", uid)  # Garantir segurança por usuário
+                               .order("data_supernova", desc=True)
+                               .limit(1)
+                               .execute())
+
+                data_ultima_supernova = None
+                observacoes_supernova = None
+                if res_supernova.data:
+                    record = res_supernova.data[0]
+                    data_str = record.get('data_supernova')
+                    observacoes_supernova = record.get('observacoes')
+
+                    if data_str:
+                        # Converter string para datetime se necessário
+                        if isinstance(data_str, str):
+                            # Remover timezone se presente e converter
+                            data_str_clean = data_str.replace('Z', '').replace('+00:00', '')
+                            try:
+                                data_ultima_supernova = datetime.fromisoformat(data_str_clean)
+                            except ValueError:
+                                # Fallback para outros formatos
+                                from dateutil import parser
+                                data_ultima_supernova = parser.parse(data_str)
+                        else:
+                            data_ultima_supernova = data_str
+            except Exception as e:
+                # Se a tabela 'supernovas' não existir ou houver erro, data será None
+                current_app.logger.debug("Erro ao buscar supernova para cliente %s: %s", cliente_id, e)
+                data_ultima_supernova = None
+                observacoes_supernova = None
+
+            # Calcular urgência baseada na data da última supernova
+            urgencia_flag = None
+            dias_desde_supernova = None
+
+            if data_ultima_supernova:
+                hoje = datetime.now()
+                # Se a supernova tem timezone, remover para comparação
+                if hasattr(data_ultima_supernova, 'tzinfo') and data_ultima_supernova.tzinfo:
+                    data_supernova_local = data_ultima_supernova.replace(tzinfo=None)
+                else:
+                    data_supernova_local = data_ultima_supernova
+
+                diff = hoje - data_supernova_local
+                dias_desde_supernova = diff.days
+
+                if dias_desde_supernova > 90:  # Mais de 3 meses (90 dias)
+                    urgencia_flag = 'critica'
+                elif dias_desde_supernova > 60:  # Mais de 2 meses
+                    urgencia_flag = 'alta'
+                elif dias_desde_supernova > 30:  # Mais de 1 mês
+                    urgencia_flag = 'media'
+                else:
+                    urgencia_flag = 'baixa'
+            else:
+                # Sem supernova = urgência crítica
+                urgencia_flag = 'critica'
+                dias_desde_supernova = None
+
+            clientes_supernova.append({
+                'id': cliente_id,
+                'nome': nome_cliente,
+                'data_ultima_supernova': data_ultima_supernova,
+                'observacoes_supernova': observacoes_supernova,
+                'urgencia_flag': urgencia_flag,
+                'dias_desde_supernova': dias_desde_supernova
+            })
+
+        # Aplicar filtros pós-processamento
+        clientes_filtrados = clientes_supernova
+
+        # Filtro por urgência
+        if urgencia_filter and urgencia_filter in ['critica', 'alta', 'media', 'baixa']:
+            clientes_filtrados = [c for c in clientes_filtrados if c['urgencia_flag'] == urgencia_filter]
+
+        # Filtro por mês da última supernova
+        if mes_filter:
+            try:
+                mes_ano = mes_filter  # Formato esperado: 'YYYY-MM'
+                if len(mes_ano) == 7 and '-' in mes_ano:  # Validar formato YYYY-MM
+                    clientes_filtrados = [
+                        c for c in clientes_filtrados
+                        if c['data_ultima_supernova'] and c['data_ultima_supernova'].strftime('%Y-%m') == mes_ano
+                    ]
+            except Exception:
+                current_app.logger.warning("Filtro de mês inválido: %s", mes_filter)
+
+        # Ordenar por urgência (crítica primeiro) e depois por nome
+        prioridade_urgencia = {'critica': 0, 'alta': 1, 'media': 2, 'baixa': 3}
+        clientes_filtrados.sort(key=lambda x: (
+            prioridade_urgencia.get(x['urgencia_flag'], 4),
+            (x['nome'] or '').upper()
+        ))
+
+        clientes_supernova = clientes_filtrados
+
+        return render_template('clientes/supernova.html',
+                             clientes_supernova=clientes_supernova,
+                             filtros={
+                                 "letra": letra_filter,
+                                 "urgencia": urgencia_filter,
+                                 "mes": mes_filter
+                             },
+                             letras_ordenadas=letras_ordenadas)
+
+    except Exception:
+        current_app.logger.exception("Falha ao carregar dados da Supernova")
+        flash("Falha ao carregar dados da Supernova.", "warning")
+        return render_template('clientes/supernova.html',
+                             clientes_supernova=[],
+                             filtros={
+                                 "letra": letra_filter,
+                                 "urgencia": urgencia_filter,
+                                 "mes": mes_filter
+                             },
+                             letras_ordenadas=[])
+
+@clientes_bp.route('/supernova/salvar', methods=['POST'])
+@login_required
+def salvar_supernova():
+    """Salva ou atualiza a data da supernova para um cliente"""
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return redirect(url_for('clientes.supernova'))
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return redirect(url_for('clientes.supernova'))
+
+    cliente_id = request.form.get('cliente_id')
+    data_supernova_str = request.form.get('data_supernova')
+    observacoes = request.form.get('observacoes', '').strip()
+
+    if not cliente_id or not data_supernova_str:
+        flash("Cliente e data da supernova são obrigatórios.", "error")
+        return redirect(url_for('clientes.supernova'))
+
+    try:
+        # Verificar se o cliente pertence ao usuário atual
+        res_cliente = (supabase.table("clientes")
+                      .select("id, nome")
+                      .eq("id", cliente_id)
+                      .eq("user_id", uid)
+                      .execute())
+
+        if not res_cliente.data:
+            flash("Cliente não encontrado ou sem permissão para editar.", "error")
+            return redirect(url_for('clientes.supernova'))
+
+        cliente_nome = res_cliente.data[0].get('nome', 'Cliente')
+
+        # Converter string de data para datetime (apenas data, sem hora)
+        try:
+            # Se vier no formato YYYY-MM-DD (input type="date")
+            if len(data_supernova_str) == 10 and '-' in data_supernova_str:
+                data_supernova = datetime.strptime(data_supernova_str, '%Y-%m-%d')
+            else:
+                # Fallback para formatos com hora (compatibilidade)
+                data_supernova = datetime.fromisoformat(data_supernova_str)
+
+            current_app.logger.info("SUPERNOVA: Data convertida: %s", data_supernova)
+        except ValueError as ve:
+            current_app.logger.error("SUPERNOVA: Erro na conversão de data '%s': %s", data_supernova_str, ve)
+            flash(f"Formato de data inválido: {data_supernova_str}", "error")
+            return redirect(url_for('clientes.supernova'))
+
+        # Primeiro, tentar criar a tabela se não existir
+        try:
+            # Verificar se já existe um registro de supernova para este cliente
+            res_supernova_existente = (supabase.table("supernovas")
+                                     .select("id")
+                                     .eq("cliente_id", cliente_id)
+                                     .eq("user_id", uid)
+                                     .execute())
+
+            current_app.logger.info("SUPERNOVA: Verificação existente OK - encontrados %d registros", len(res_supernova_existente.data or []))
+
+        except Exception as table_error:
+            current_app.logger.error("SUPERNOVA: Erro ao acessar tabela supernovas: %s", table_error)
+            # Se a tabela não existe, vamos tentar criar o registro mesmo assim
+            res_supernova_existente = type('MockResponse', (), {'data': []})()
+
+        payload = {
+            "cliente_id": cliente_id,
+            "data_supernova": data_supernova.isoformat(),
+            "observacoes": observacoes or None,
+            "user_id": uid,  # Garantir que o registro pertence ao usuário
+            "updated_at": datetime.now().isoformat()
+        }
+
+        current_app.logger.info("SUPERNOVA: Payload preparado: %s", payload)
+
+        if res_supernova_existente.data:
+            # Atualizar registro existente
+            supernova_id = res_supernova_existente.data[0]["id"]
+            current_app.logger.info("SUPERNOVA: Atualizando registro existente ID: %s", supernova_id)
+
+            result = supabase.table("supernovas").update(payload).eq("id", supernova_id).execute()
+            current_app.logger.info("SUPERNOVA: Update result: %s", result.data)
+
+            flash(f"Data da supernova atualizada para {cliente_nome}.", "success")
+            current_app.logger.info("SUPERNOVA: Atualizada para cliente %s (%s) by user %s", cliente_nome, cliente_id, uid)
+        else:
+            # Criar novo registro
+            payload["created_at"] = datetime.now().isoformat()
+            current_app.logger.info("SUPERNOVA: Criando novo registro para cliente %s", cliente_nome)
+
+            result = supabase.table("supernovas").insert(payload).execute()
+            current_app.logger.info("SUPERNOVA: Insert result: %s", result.data)
+
+            flash(f"Data da supernova registrada para {cliente_nome}.", "success")
+            current_app.logger.info("SUPERNOVA: Nova criada para cliente %s (%s) by user %s", cliente_nome, cliente_id, uid)
+
+    except Exception as e:
+        current_app.logger.exception("SUPERNOVA: Falha completa ao salvar supernova para cliente %s: %s", cliente_id, e)
+
+        # Tentar dar mais detalhes sobre o erro
+        error_msg = str(e)
+        if "does not exist" in error_msg.lower():
+            flash("Tabela de supernova não configurada no banco de dados. Contate o administrador.", "error")
+        elif "permission" in error_msg.lower():
+            flash("Sem permissão para salvar dados de supernova.", "error")
+        elif "constraint" in error_msg.lower():
+            flash("Erro de validação nos dados. Verifique os campos.", "error")
+        else:
+            flash(f"Erro ao salvar data da supernova: {error_msg}", "error")
+
+    return redirect(url_for('clientes.supernova'))
+
+@clientes_bp.route('/supernova/verificar-tabela')
+@login_required
+def verificar_tabela_supernova():
+    """Rota administrativa para verificar/criar tabela supernovas"""
+    supabase = _get_supabase()
+    if not supabase:
+        return {"erro": "Supabase indisponível"}, 500
+
+    try:
+        # Tentar fazer uma consulta simples na tabela
+        result = supabase.table("supernovas").select("id").limit(1).execute()
+        return {
+            "sucesso": True,
+            "tabela_existe": True,
+            "registros_encontrados": len(result.data or []),
+            "mensagem": "Tabela 'supernovas' existe e está acessível"
+        }
+    except Exception as e:
+        error_msg = str(e)
+        current_app.logger.error("VERIFICAR TABELA SUPERNOVA: %s", error_msg)
+
+        sql_criar_tabela = """
+        -- SQL para criar a tabela supernovas no Supabase
+        CREATE TABLE IF NOT EXISTS public.supernovas (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            cliente_id UUID NOT NULL REFERENCES public.clientes(id) ON DELETE CASCADE,
+            user_id UUID NOT NULL,
+            data_supernova TIMESTAMP WITH TIME ZONE NOT NULL,
+            observacoes TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        -- Índices para performance
+        CREATE INDEX IF NOT EXISTS idx_supernovas_cliente_id ON public.supernovas(cliente_id);
+        CREATE INDEX IF NOT EXISTS idx_supernovas_user_id ON public.supernovas(user_id);
+        CREATE INDEX IF NOT EXISTS idx_supernovas_data ON public.supernovas(data_supernova);
+
+        -- RLS (Row Level Security)
+        ALTER TABLE public.supernovas ENABLE ROW LEVEL SECURITY;
+
+        -- Política para usuários autenticados (Supabase não suporta IF NOT EXISTS em CREATE POLICY)
+        DROP POLICY IF EXISTS "Users can manage their own supernovas" ON public.supernovas;
+        CREATE POLICY "Users can manage their own supernovas"
+        ON public.supernovas
+        FOR ALL
+        USING (auth.uid() = user_id::uuid);
+        """
+
+        return {
+            "sucesso": False,
+            "tabela_existe": False,
+            "erro": error_msg,
+            "sql_criar_tabela": sql_criar_tabela,
+            "mensagem": "Tabela 'supernovas' não existe. Execute o SQL fornecido no Supabase."
+        }, 400
