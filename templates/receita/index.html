@@ -41,27 +41,99 @@
 
 <div class="space-y-8">
 
-  <!-- Receita mensal (Escritório & Assessor) -->
+  <!-- Receita mensal por modelo (Escritório & Assessor) -->
   <div class="border rounded-xl p-4 bg-white">
-    <h3 class="font-medium mb-3">Receita mensal — Escritório e Assessor</h3>
-    <table class="min-w-full text-sm">
-      <thead class="bg-gray-50 text-gray-600">
-        <tr>
-          <th class="text-left px-3 py-2">Mês</th>
-          <th class="text-right px-3 py-2">Escritório</th>
-          <th class="text-right px-3 py-2">Assessor</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in hist_mensal %}
-        <tr class="border-t">
-          <td class="px-3 py-2">{{ r.mes }}</td>
-          <td class="px-3 py-2 text-right">{{ r.escritorio|brl }}</td>
-          <td class="px-3 py-2 text-right">{{ r.assessor|brl }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <h3 class="font-medium mb-3">Receita mensal por modelo — Escritório e Assessor</h3>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="text-left px-3 py-2">Mês</th>
+            <th class="text-center px-3 py-2 border-l border-gray-200" colspan="2">TRADICIONAL</th>
+            <th class="text-center px-3 py-2 border-l border-gray-200" colspan="2">ASSET</th>
+            <th class="text-center px-3 py-2 border-l border-gray-200" colspan="2">FEE_BASED</th>
+            <th class="text-center px-3 py-2 border-l border-gray-200" colspan="2">FEE_BASED_SEM_RV</th>
+            <th class="text-center px-3 py-2 border-l border-gray-400" colspan="2">TOTAL</th>
+          </tr>
+          <tr class="bg-gray-25 text-xs text-gray-500">
+            <th class="px-3 py-1"></th>
+            <th class="px-2 py-1 text-center border-l border-gray-200">Escrit.</th>
+            <th class="px-2 py-1 text-center">Assess.</th>
+            <th class="px-2 py-1 text-center border-l border-gray-200">Escrit.</th>
+            <th class="px-2 py-1 text-center">Assess.</th>
+            <th class="px-2 py-1 text-center border-l border-gray-200">Escrit.</th>
+            <th class="px-2 py-1 text-center">Assess.</th>
+            <th class="px-2 py-1 text-center border-l border-gray-200">Escrit.</th>
+            <th class="px-2 py-1 text-center">Assess.</th>
+            <th class="px-2 py-1 text-center border-l border-gray-400 font-semibold">Escrit.</th>
+            <th class="px-2 py-1 text-center font-semibold">Assess.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in receita_por_modelo %}
+          {% set modelos = item.modelos %}
+          <tr class="border-t hover:bg-gray-50">
+            <td class="px-3 py-2 font-medium">{{ item.mes }}</td>
+
+            <!-- TRADICIONAL -->
+            <td class="px-2 py-2 text-right text-xs border-l border-gray-200">
+              {{ (modelos.get('TRADICIONAL', {}).get('escritorio', 0))|brl if modelos.get('TRADICIONAL') else '-' }}
+            </td>
+            <td class="px-2 py-2 text-right text-xs">
+              {{ (modelos.get('TRADICIONAL', {}).get('assessor', 0))|brl if modelos.get('TRADICIONAL') else '-' }}
+            </td>
+
+            <!-- ASSET -->
+            <td class="px-2 py-2 text-right text-xs border-l border-gray-200">
+              {{ (modelos.get('ASSET', {}).get('escritorio', 0))|brl if modelos.get('ASSET') else '-' }}
+            </td>
+            <td class="px-2 py-2 text-right text-xs">
+              {{ (modelos.get('ASSET', {}).get('assessor', 0))|brl if modelos.get('ASSET') else '-' }}
+            </td>
+
+            <!-- FEE_BASED -->
+            <td class="px-2 py-2 text-right text-xs border-l border-gray-200">
+              {{ (modelos.get('FEE_BASED', {}).get('escritorio', 0))|brl if modelos.get('FEE_BASED') else '-' }}
+            </td>
+            <td class="px-2 py-2 text-right text-xs">
+              {{ (modelos.get('FEE_BASED', {}).get('assessor', 0))|brl if modelos.get('FEE_BASED') else '-' }}
+            </td>
+
+            <!-- FEE_BASED_SEM_RV -->
+            <td class="px-2 py-2 text-right text-xs border-l border-gray-200">
+              {{ (modelos.get('FEE_BASED_SEM_RV', {}).get('escritorio', 0))|brl if modelos.get('FEE_BASED_SEM_RV') else '-' }}
+            </td>
+            <td class="px-2 py-2 text-right text-xs">
+              {{ (modelos.get('FEE_BASED_SEM_RV', {}).get('assessor', 0))|brl if modelos.get('FEE_BASED_SEM_RV') else '-' }}
+            </td>
+
+            <!-- TOTAL por mês -->
+            {% set total_escritorio = (modelos.get('TRADICIONAL', {}).get('escritorio', 0) or 0) +
+                                     (modelos.get('ASSET', {}).get('escritorio', 0) or 0) +
+                                     (modelos.get('FEE_BASED', {}).get('escritorio', 0) or 0) +
+                                     (modelos.get('FEE_BASED_SEM_RV', {}).get('escritorio', 0) or 0) %}
+            {% set total_assessor = (modelos.get('TRADICIONAL', {}).get('assessor', 0) or 0) +
+                                   (modelos.get('ASSET', {}).get('assessor', 0) or 0) +
+                                   (modelos.get('FEE_BASED', {}).get('assessor', 0) or 0) +
+                                   (modelos.get('FEE_BASED_SEM_RV', {}).get('assessor', 0) or 0) %}
+            <td class="px-2 py-2 text-right text-sm border-l border-gray-400 font-semibold bg-gray-50">
+              {{ total_escritorio|brl }}
+            </td>
+            <td class="px-2 py-2 text-right text-sm font-semibold bg-gray-50">
+              {{ total_assessor|brl }}
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-3 text-xs text-gray-500">
+      • <strong>Escrit.</strong> = Receita Escritório (comissao_escritorio)
+      • <strong>Assess.</strong> = Receita Assessor (valor_liquido)
+      • Valores por modelo baseados nos códigos XP/MB dos clientes
+    </div>
   </div>
 
   <!-- Filtro por Produtos + Recorrente (Assessor) -->
