@@ -25,13 +25,21 @@
 
       <!-- Action Buttons -->
       <div class="flex flex-wrap gap-2">
+        <a href="{{ url_for('clientes.cross_sell') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          🎯 Cross Sell
+        </a>
+        <a href="{{ url_for('clientes.insights') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          💡 Insights
+        </a>
+        <a href="{{ url_for('clientes.supernova') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          ⭐ Supernova
+        </a>
         <a href="{{ url_for('clientes.importar_em_massa') }}"
            class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
-          📥 Importar xlsx
-        </a>
-        <a href="{{ url_for('clientes.baixar_template_clientes') }}"
-           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
-          📄 Template
+          📥 Importar
         </a>
         <a href="/clientes/novo"
            class="px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">

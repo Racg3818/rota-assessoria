@@ -987,27 +987,36 @@ def _historico_receita_passiva_assessor() -> list:
         # Buscar TODAS as receitas do usuário com paginação
         all_receitas = []
         page_size = 1000
+        # 🚀 OTIMIZAÇÃO: Limitar busca aos últimos 24 meses (reduz volume drasticamente)
+        from datetime import datetime, timedelta
+        hoje = datetime.now()
+        data_limite = (hoje - timedelta(days=730)).strftime('%Y-%m')  # 24 meses atrás
+
         offset = 0
-        
-        while True:
+        max_iterations = 50  # Segurança: máximo 50 páginas (50k registros)
+        iterations = 0
+
+        while iterations < max_iterations:
             res_receitas = (supabase.table("receita_itens")
                           .select("data_ref, valor_liquido, produto, familia")
                           .eq("user_id", uid)
-                          .order("id")  # FIX: Usar ID para ordenação consistente
+                          .gte("data_ref", data_limite)  # 🚀 FILTRO: apenas últimos 24 meses
+                          .order("id")
                           .range(offset, offset + page_size - 1)
                           .execute())
-            
+
             if not res_receitas.data:
                 break
-                
+
             all_receitas.extend(res_receitas.data)
             current_app.logger.info("HIST_RECEITA_PASSIVA: Página offset %d - %d registros", offset, len(res_receitas.data))
-            
+
             # Se a página retornou menos que page_size, é a última página
             if len(res_receitas.data) < page_size:
                 break
-                
+
             offset += page_size
+            iterations += 1
         
         current_app.logger.info("HIST_RECEITA_PASSIVA: TOTAL de receitas encontradas: %d", len(all_receitas))
         

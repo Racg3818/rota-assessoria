@@ -758,47 +758,51 @@ def supernova():
         except Exception:
             letras_ordenadas = []
 
+        # 🚀 OTIMIZAÇÃO: Buscar TODAS as supernovas de uma vez (elimina N+1)
+        supernovas_map = {}
+        try:
+            res_supernovas_all = (supabase.table("supernovas")
+                                .select("cliente_id, data_supernova, observacoes")
+                                .eq("user_id", uid)
+                                .order("data_supernova", desc=True)
+                                .execute())
+
+            # Agrupar por cliente_id, mantendo apenas a mais recente
+            for item in (res_supernovas_all.data or []):
+                cliente_id = item.get('cliente_id')
+                if cliente_id not in supernovas_map:
+                    supernovas_map[cliente_id] = item
+        except Exception as e:
+            current_app.logger.debug("Erro ao buscar supernovas: %s", e)
+
         clientes_supernova = []
         for cliente in clientes:
             cliente_id = cliente.get('id')
             nome_cliente = cliente.get('nome', '')
 
-            # Buscar a data da última supernova para este cliente
-            # Tabela 'supernovas' com campos: cliente_id, data_supernova, observacoes, user_id
-            try:
-                res_supernova = (supabase.table("supernovas")
-                               .select("data_supernova, observacoes")
-                               .eq("cliente_id", cliente_id)
-                               .eq("user_id", uid)  # Garantir segurança por usuário
-                               .order("data_supernova", desc=True)
-                               .limit(1)
-                               .execute())
+            # Buscar do mapa (já carregado)
+            supernova_record = supernovas_map.get(cliente_id)
 
-                data_ultima_supernova = None
-                observacoes_supernova = None
-                if res_supernova.data:
-                    record = res_supernova.data[0]
-                    data_str = record.get('data_supernova')
-                    observacoes_supernova = record.get('observacoes')
+            data_ultima_supernova = None
+            observacoes_supernova = None
 
-                    if data_str:
-                        # Converter string para datetime se necessário
-                        if isinstance(data_str, str):
-                            # Remover timezone se presente e converter
-                            data_str_clean = data_str.replace('Z', '').replace('+00:00', '')
-                            try:
-                                data_ultima_supernova = datetime.fromisoformat(data_str_clean)
-                            except ValueError:
-                                # Fallback para outros formatos
-                                from dateutil import parser
-                                data_ultima_supernova = parser.parse(data_str)
-                        else:
-                            data_ultima_supernova = data_str
-            except Exception as e:
-                # Se a tabela 'supernovas' não existir ou houver erro, data será None
-                current_app.logger.debug("Erro ao buscar supernova para cliente %s: %s", cliente_id, e)
-                data_ultima_supernova = None
-                observacoes_supernova = None
+            if supernova_record:
+                data_str = supernova_record.get('data_supernova')
+                observacoes_supernova = supernova_record.get('observacoes')
+
+                if data_str:
+                    # Converter string para datetime se necessário
+                    if isinstance(data_str, str):
+                        # Remover timezone se presente e converter
+                        data_str_clean = data_str.replace('Z', '').replace('+00:00', '')
+                        try:
+                            data_ultima_supernova = datetime.fromisoformat(data_str_clean)
+                        except ValueError:
+                            # Fallback para outros formatos
+                            from dateutil import parser
+                            data_ultima_supernova = parser.parse(data_str)
+                    else:
+                        data_ultima_supernova = data_str
 
             # Calcular urgência baseada na data da última supernova
             urgencia_flag = None
@@ -1056,3 +1060,405 @@ def verificar_tabela_supernova():
             "sql_criar_tabela": sql_criar_tabela,
             "mensagem": "Tabela 'supernovas' não existe. Execute o SQL fornecido no Supabase."
         }, 400
+
+# ----------------- Cross Sell -----------------
+@clientes_bp.route('/cross-sell')
+@login_required
+def cross_sell():
+    """Tela Cross Sell: gerencia apresentação e boletagem de produtos aos clientes"""
+    import time
+    start_time = time.time()
+
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return render_template('clientes/cross_sell.html',
+                             clientes_cross_sell=[],
+                             filtros={"q": "", "letra": ""},
+                             letras_ordenadas=[])
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return render_template('clientes/cross_sell.html',
+                             clientes_cross_sell=[],
+                             filtros={"q": "", "letra": ""},
+                             letras_ordenadas=[])
+
+    # Filtros
+    q_txt = (request.args.get('q') or '').strip()
+    letra_filter = (request.args.get('letra') or '').strip()
+
+    try:
+        t1 = time.time()
+        current_app.logger.info("CROSS_SELL: Iniciando queries...")
+        # Buscar todos os clientes do usuário
+        query = supabase.table("clientes").select("id, nome, net_total").eq("user_id", uid)
+
+        if q_txt:
+            pattern = f"%{q_txt}%"
+            try:
+                query = query.ilike("nome", pattern)
+            except:
+                pass
+
+        res_clientes = query.execute()
+        clientes = res_clientes.data or []
+        current_app.logger.info("CROSS_SELL: Clientes buscados em %.2fs (%d clientes)", time.time() - t1, len(clientes))
+
+        # Aplicar filtro por primeira letra
+        if letra_filter and letra_filter.upper() in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            letra_upper = letra_filter.upper()
+            clientes = [
+                c for c in clientes
+                if (c.get("nome") or "").strip().upper().startswith(letra_upper)
+            ]
+
+        # Buscar TODOS os dados de cross sell de uma vez (otimização N+1)
+        t2 = time.time()
+        try:
+            res_cross_all = supabase.table("cross_sell").select("*").eq("user_id", uid).execute()
+            cross_sell_map = {item['cliente_id']: item for item in (res_cross_all.data or [])}
+            current_app.logger.info("CROSS_SELL: Cross sell data buscado em %.2fs (%d registros)", time.time() - t2, len(cross_sell_map))
+        except Exception as e:
+            current_app.logger.debug("Erro ao buscar cross_sell: %s", e)
+            cross_sell_map = {}
+
+        # Montar lista de clientes com dados de cross sell
+        clientes_cross_sell = []
+        default_cross_data = {
+            'fee_based': '',
+            'financial_planning': '',
+            'mb': '',
+            'offshore': '',
+            'produto_estruturado': '',
+            'asset': '',
+            'seguro_vida': '',
+            'consorcio': '',
+            'wealth': ''
+        }
+
+        for cliente in clientes:
+            cliente_id = cliente.get('id')
+            nome_cliente = cliente.get('nome', '')
+
+            # Buscar dados do mapa (já carregado)
+            cross_data = cross_sell_map.get(cliente_id, default_cross_data)
+
+            clientes_cross_sell.append({
+                'id': cliente_id,
+                'nome': nome_cliente,
+                'fee_based': cross_data.get('fee_based', ''),
+                'financial_planning': cross_data.get('financial_planning', ''),
+                'mb': cross_data.get('mb', ''),
+                'offshore': cross_data.get('offshore', ''),
+                'produto_estruturado': cross_data.get('produto_estruturado', ''),
+                'asset': cross_data.get('asset', ''),
+                'seguro_vida': cross_data.get('seguro_vida', ''),
+                'consorcio': cross_data.get('consorcio', ''),
+                'wealth': cross_data.get('wealth', '')
+            })
+
+        # Ordenar por nome
+        clientes_cross_sell.sort(key=lambda x: (x['nome'] or '').upper())
+
+        # Gerar lista de letras disponíveis (usar clientes já carregados)
+        letras_disponiveis = set()
+        for c in clientes:
+            nome = (c.get("nome") or "").strip()
+            if nome:
+                primeira_letra = nome[0].upper()
+                if primeira_letra.isalpha():
+                    letras_disponiveis.add(primeira_letra)
+        letras_ordenadas = sorted(list(letras_disponiveis))
+
+        elapsed = time.time() - start_time
+        current_app.logger.info("CROSS_SELL: Página carregada em %.2fs", elapsed)
+
+        return render_template('clientes/cross_sell.html',
+                             clientes_cross_sell=clientes_cross_sell,
+                             filtros={"q": q_txt, "letra": letra_filter},
+                             letras_ordenadas=letras_ordenadas)
+
+    except Exception:
+        current_app.logger.exception("Falha ao carregar dados de Cross Sell")
+        flash("Falha ao carregar dados de Cross Sell.", "warning")
+        return render_template('clientes/cross_sell.html',
+                             clientes_cross_sell=[],
+                             filtros={"q": q_txt, "letra": letra_filter},
+                             letras_ordenadas=[])
+
+@clientes_bp.route('/cross-sell/salvar', methods=['POST'])
+@login_required
+def salvar_cross_sell():
+    """Salva ou atualiza os dados de cross sell para um cliente"""
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return redirect(url_for('clientes.cross_sell'))
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return redirect(url_for('clientes.cross_sell'))
+
+    cliente_id = request.form.get('cliente_id')
+
+    if not cliente_id:
+        flash("Cliente não identificado.", "error")
+        return redirect(url_for('clientes.cross_sell'))
+
+    try:
+        # Verificar se o cliente pertence ao usuário atual
+        res_cliente = (supabase.table("clientes")
+                      .select("id, nome")
+                      .eq("id", cliente_id)
+                      .eq("user_id", uid)
+                      .execute())
+
+        if not res_cliente.data:
+            flash("Cliente não encontrado ou sem permissão para editar.", "error")
+            return redirect(url_for('clientes.cross_sell'))
+
+        cliente_nome = res_cliente.data[0].get('nome', 'Cliente')
+
+        # Coletar dados do formulário
+        payload = {
+            "cliente_id": cliente_id,
+            "user_id": uid,
+            "fee_based": request.form.get('fee_based', ''),
+            "financial_planning": request.form.get('financial_planning', ''),
+            "mb": request.form.get('mb', ''),
+            "offshore": request.form.get('offshore', ''),
+            "produto_estruturado": request.form.get('produto_estruturado', ''),
+            "asset": request.form.get('asset', ''),
+            "seguro_vida": request.form.get('seguro_vida', ''),
+            "consorcio": request.form.get('consorcio', ''),
+            "wealth": request.form.get('wealth', ''),
+            "updated_at": datetime.now().isoformat()
+        }
+
+        # Verificar se já existe um registro
+        res_existente = (supabase.table("cross_sell")
+                        .select("id")
+                        .eq("cliente_id", cliente_id)
+                        .eq("user_id", uid)
+                        .execute())
+
+        if res_existente.data:
+            # Atualizar
+            cross_sell_id = res_existente.data[0]["id"]
+            supabase.table("cross_sell").update(payload).eq("id", cross_sell_id).execute()
+            flash(f"Cross Sell atualizado para {cliente_nome}.", "success")
+        else:
+            # Inserir
+            payload["created_at"] = datetime.now().isoformat()
+            supabase.table("cross_sell").insert(payload).execute()
+            flash(f"Cross Sell registrado para {cliente_nome}.", "success")
+
+    except Exception as e:
+        current_app.logger.exception("Falha ao salvar cross sell: %s", e)
+        flash(f"Erro ao salvar Cross Sell: {str(e)}", "error")
+
+    return redirect(url_for('clientes.cross_sell'))
+
+# ----------------- Insights -----------------
+@clientes_bp.route('/insights')
+@login_required
+def insights():
+    """Tela Insights: cruzamento de dados para insights valiosos"""
+    import time
+    start_time = time.time()
+
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return render_template('clientes/insights.html', insights=[])
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return render_template('clientes/insights.html', insights=[])
+
+    try:
+        # Buscar todos os dados necessários
+        t1 = time.time()
+        res_clientes = supabase.table("clientes").select("*").eq("user_id", uid).execute()
+        clientes = res_clientes.data or []
+        current_app.logger.info("INSIGHTS: Clientes buscados em %.2fs (%d clientes)", time.time() - t1, len(clientes))
+
+        # Buscar dados de cross_sell
+        t2 = time.time()
+        res_cross = supabase.table("cross_sell").select("*").eq("user_id", uid).execute()
+        cross_sell_data = {item['cliente_id']: item for item in (res_cross.data or [])}
+        current_app.logger.info("INSIGHTS: Cross sell buscado em %.2fs (%d registros)", time.time() - t2, len(cross_sell_data))
+
+        insights_list = []
+
+        # === INSIGHT 1: Clientes com NET > 1M sem Financial Planning ===
+        clientes_alto_net_sem_fp = []
+        for cliente in clientes:
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            if net_total >= 1000000:
+                cross = cross_sell_data.get(cliente['id'], {})
+                fp_status = cross.get('financial_planning', '')
+                if fp_status != 'Apresentado' and fp_status != 'Boletado':
+                    clientes_alto_net_sem_fp.append({
+                        'nome': cliente.get('nome'),
+                        'net_total': net_total
+                    })
+
+        if clientes_alto_net_sem_fp:
+            insights_list.append({
+                'tipo': 'oportunidade',
+                'titulo': f'🎯 {len(clientes_alto_net_sem_fp)} clientes com NET > R$ 1M sem Financial Planning',
+                'descricao': f'Há {len(clientes_alto_net_sem_fp)} clientes com patrimônio acima de R$ 1 milhão que ainda não tiveram Financial Planning apresentado.',
+                'clientes': clientes_alto_net_sem_fp,
+                'prioridade': 'alta'
+            })
+
+        # === INSIGHT 2: Clientes TRADICIONAL com NET > 500K (candidatos a Fee Based) ===
+        clientes_tradicional_candidatos_fee = []
+        for cliente in clientes:
+            modelo = _norm_modelo(cliente.get('modelo'))
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            if modelo == 'TRADICIONAL' and net_total >= 500000:
+                cross = cross_sell_data.get(cliente['id'], {})
+                fee_status = cross.get('fee_based', '')
+                if fee_status != 'Apresentado' and fee_status != 'Boletado':
+                    clientes_tradicional_candidatos_fee.append({
+                        'nome': cliente.get('nome'),
+                        'net_total': net_total
+                    })
+
+        if clientes_tradicional_candidatos_fee:
+            insights_list.append({
+                'tipo': 'conversao',
+                'titulo': f'💡 {len(clientes_tradicional_candidatos_fee)} clientes TRADICIONAL com NET > R$ 500K',
+                'descricao': f'{len(clientes_tradicional_candidatos_fee)} clientes no modelo TRADICIONAL com patrimônio acima de R$ 500 mil são fortes candidatos para migração ao modelo Fee Based.',
+                'clientes': clientes_tradicional_candidatos_fee,
+                'prioridade': 'alta'
+            })
+
+        # === INSIGHT 3: Clientes sem Offshore com NET > 1M ===
+        clientes_sem_offshore = []
+        for cliente in clientes:
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            if net_total >= 1000000:
+                cross = cross_sell_data.get(cliente['id'], {})
+                offshore_status = cross.get('offshore', '')
+                if offshore_status != 'Apresentado' and offshore_status != 'Boletado':
+                    clientes_sem_offshore.append({
+                        'nome': cliente.get('nome'),
+                        'net_total': net_total
+                    })
+
+        if clientes_sem_offshore:
+            insights_list.append({
+                'tipo': 'oportunidade',
+                'titulo': f'🌎 {len(clientes_sem_offshore)} clientes com NET > R$ 1M sem Offshore',
+                'descricao': f'{len(clientes_sem_offshore)} clientes com patrimônio acima de R$ 1 milhão ainda não tiveram soluções Offshore apresentadas.',
+                'clientes': clientes_sem_offshore,
+                'prioridade': 'alta'
+            })
+
+        # === INSIGHT 4: Clientes com NET > 3M sem Asset apresentado ===
+        clientes_alto_net_sem_asset = []
+        for cliente in clientes:
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            if net_total >= 3000000:
+                cross = cross_sell_data.get(cliente['id'], {})
+                asset_status = cross.get('asset', '')
+                if asset_status != 'Apresentado' and asset_status != 'Boletado':
+                    clientes_alto_net_sem_asset.append({
+                        'nome': cliente.get('nome'),
+                        'net_total': net_total
+                    })
+
+        if clientes_alto_net_sem_asset:
+            insights_list.append({
+                'tipo': 'oportunidade',
+                'titulo': f'💎 {len(clientes_alto_net_sem_asset)} clientes com NET > R$ 3M sem Asset apresentado',
+                'descricao': f'{len(clientes_alto_net_sem_asset)} clientes com patrimônio acima de R$ 3 milhões ainda não tiveram o modelo Asset apresentado.',
+                'clientes': clientes_alto_net_sem_asset,
+                'prioridade': 'alta'
+            })
+
+        # === INSIGHT 5: Clientes sem Seguro de Vida (todos com NET > 300K) ===
+        clientes_sem_seguro = []
+        for cliente in clientes:
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            if net_total >= 300000:
+                cross = cross_sell_data.get(cliente['id'], {})
+                seguro_status = cross.get('seguro_vida', '')
+                if seguro_status != 'Apresentado' and seguro_status != 'Boletado':
+                    clientes_sem_seguro.append({
+                        'nome': cliente.get('nome'),
+                        'net_total': net_total
+                    })
+
+        if clientes_sem_seguro:
+            insights_list.append({
+                'tipo': 'protecao',
+                'titulo': f'🛡️ {len(clientes_sem_seguro)} clientes com NET > R$ 300K sem Seguro de Vida',
+                'descricao': f'{len(clientes_sem_seguro)} clientes com patrimônio significativo ainda não têm Seguro de Vida apresentado.',
+                'clientes': clientes_sem_seguro,
+                'prioridade': 'media'
+            })
+
+        # === INSIGHT 6: Distribuição de modelos (estatística) ===
+        distribuicao_modelos = {}
+        total_net_por_modelo = {}
+        for cliente in clientes:
+            modelo = _norm_modelo(cliente.get('modelo'))
+            net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+            distribuicao_modelos[modelo] = distribuicao_modelos.get(modelo, 0) + 1
+            total_net_por_modelo[modelo] = total_net_por_modelo.get(modelo, 0) + net_total
+
+        modelo_mais_comum = max(distribuicao_modelos.items(), key=lambda x: x[1]) if distribuicao_modelos else None
+        if modelo_mais_comum:
+            insights_list.append({
+                'tipo': 'estatistica',
+                'titulo': f'📈 Distribuição de Modelos: {modelo_mais_comum[0]} lidera com {modelo_mais_comum[1]} clientes',
+                'descricao': f'Seu modelo mais comum é {modelo_mais_comum[0]} com {modelo_mais_comum[1]} clientes. NET total neste modelo: R$ {total_net_por_modelo.get(modelo_mais_comum[0], 0):,.2f}',
+                'clientes': [],
+                'prioridade': 'info'
+            })
+
+        # === INSIGHT 7: Clientes com MB não apresentado ===
+        clientes_sem_mb = []
+        for cliente in clientes:
+            codigo_mb = (cliente.get('codigo_mb') or '').strip()
+            if not codigo_mb:  # Cliente não tem código MB
+                cross = cross_sell_data.get(cliente['id'], {})
+                mb_status = cross.get('mb', '')
+                if mb_status != 'Apresentado' and mb_status != 'Boletado':
+                    net_total = (_to_float(cliente.get('net_total')) / 100.0) if NET_TOTAL_IN_CENTS else _to_float(cliente.get('net_total'))
+                    if net_total >= 100000:  # Só clientes com NET significativo
+                        clientes_sem_mb.append({
+                            'nome': cliente.get('nome'),
+                            'net_total': net_total
+                        })
+
+        if clientes_sem_mb:
+            insights_list.append({
+                'tipo': 'expansao',
+                'titulo': f'🏦 {len(clientes_sem_mb)} clientes sem MB (NET > R$ 100K)',
+                'descricao': f'{len(clientes_sem_mb)} clientes com patrimônio acima de R$ 100 mil ainda não têm conta MB. Oportunidade de expansão.',
+                'clientes': clientes_sem_mb,
+                'prioridade': 'media'
+            })
+
+        # Ordenar insights por prioridade
+        prioridade_ordem = {'alta': 0, 'media': 1, 'info': 2}
+        insights_list.sort(key=lambda x: prioridade_ordem.get(x['prioridade'], 3))
+
+        elapsed = time.time() - start_time
+        current_app.logger.info("INSIGHTS: Página carregada em %.2fs (%d insights)", elapsed, len(insights_list))
+
+        return render_template('clientes/insights.html', insights=insights_list)
+
+    except Exception:
+        current_app.logger.exception("Falha ao gerar insights")
+        flash("Falha ao gerar insights.", "warning")
+        return render_template('clientes/insights.html', insights=[])

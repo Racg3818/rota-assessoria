@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Insights — Rota Assessoria{% endblock %}
+{% block subtitle %}Análise Inteligente de Oportunidades{% endblock %}
+{% block content %}
+
+<!-- Header Moderno -->
+<div class="relative mb-8 bg-gradient-to-br from-amber-600 via-orange-600 to-red-700 rounded-3xl p-6 text-white overflow-hidden">
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-64 h-64 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-64 h-64 bg-orange-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-xl">💡</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Insights Inteligentes</h1>
+        </div>
+        <p class="text-orange-100 text-sm md:text-base">Oportunidades identificadas através de análise de dados</p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <a href="{{ url_for('clientes.cross_sell') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          🎯 Cross Sell
+        </a>
+        <a href="{{ url_for('clientes.index') }}"
+           class="px-4 py-2 bg-white text-orange-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
+          ← Voltar para Clientes
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Resumo de Insights -->
+{% if insights %}
+<div class="mb-6 bg-white rounded-xl border p-6">
+  <div class="flex items-center gap-3 mb-4">
+    <span class="text-2xl">📊</span>
+    <div>
+      <h2 class="text-xl font-bold text-gray-800">Resumo de Oportunidades</h2>
+      <p class="text-sm text-gray-600">{{ insights|length }} insights identificados</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+      <div class="text-red-600 font-bold text-2xl">
+        {{ insights | selectattr('prioridade', 'equalto', 'alta') | list | length }}
+      </div>
+      <div class="text-red-700 text-sm font-medium">Alta Prioridade</div>
+    </div>
+
+    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+      <div class="text-yellow-600 font-bold text-2xl">
+        {{ insights | selectattr('prioridade', 'equalto', 'media') | list | length }}
+      </div>
+      <div class="text-yellow-700 text-sm font-medium">Média Prioridade</div>
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div class="text-blue-600 font-bold text-2xl">
+        {{ insights | selectattr('prioridade', 'equalto', 'info') | list | length }}
+      </div>
+      <div class="text-blue-700 text-sm font-medium">Informativo</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Lista de Insights -->
+<div class="space-y-4">
+  {% if insights %}
+    {% for insight in insights %}
+    <div class="bg-white rounded-xl border overflow-hidden hover:shadow-lg transition-shadow">
+      <!-- Header do Insight -->
+      <div class="p-6
+        {% if insight.prioridade == 'alta' %}bg-gradient-to-r from-red-50 to-orange-50 border-l-4 border-red-500
+        {% elif insight.prioridade == 'media' %}bg-gradient-to-r from-yellow-50 to-amber-50 border-l-4 border-yellow-500
+        {% else %}bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500
+        {% endif %}">
+
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+              {% if insight.prioridade == 'alta' %}
+              <span class="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">ALTA PRIORIDADE</span>
+              {% elif insight.prioridade == 'media' %}
+              <span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-bold rounded">MÉDIA PRIORIDADE</span>
+              {% else %}
+              <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded">INFORMATIVO</span>
+              {% endif %}
+
+              {% if insight.tipo == 'oportunidade' %}
+              <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">Oportunidade</span>
+              {% elif insight.tipo == 'conversao' %}
+              <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded">Conversão</span>
+              {% elif insight.tipo == 'protecao' %}
+              <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">Proteção</span>
+              {% elif insight.tipo == 'complemento' %}
+              <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-medium rounded">Complemento</span>
+              {% elif insight.tipo == 'expansao' %}
+              <span class="px-2 py-1 bg-teal-100 text-teal-700 text-xs font-medium rounded">Expansão</span>
+              {% else %}
+              <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded">Estatística</span>
+              {% endif %}
+            </div>
+
+            <h3 class="text-lg font-bold text-gray-900 mb-2">{{ insight.titulo }}</h3>
+            <p class="text-gray-700">{{ insight.descricao }}</p>
+          </div>
+
+          {% if insight.clientes %}
+          <button onclick="toggleClientes('insight-{{ loop.index }}')"
+                  class="px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors border">
+            <span id="toggle-text-insight-{{ loop.index }}">Ver Clientes →</span>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Lista de Clientes (colapsável) -->
+      {% if insight.clientes %}
+      <div id="insight-{{ loop.index }}" class="hidden border-t">
+        <div class="p-6 bg-gray-50">
+          <h4 class="font-bold text-gray-800 mb-4">Clientes Identificados ({{ insight.clientes|length }})</h4>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% for cliente in insight.clientes %}
+            <div class="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow">
+              <div class="font-medium text-gray-900 mb-1">{{ cliente.nome }}</div>
+              <div class="text-sm text-gray-600">
+                NET: <span class="font-medium text-gray-800">{{ cliente.net_total | brl }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+  {% else %}
+    <!-- Estado Vazio -->
+    <div class="bg-white rounded-xl border p-12 text-center">
+      <div class="text-6xl mb-4">🎉</div>
+      <h3 class="text-xl font-bold text-gray-800 mb-2">Parabéns!</h3>
+      <p class="text-gray-600 mb-4">
+        Não há insights pendentes no momento. Você está aproveitando todas as oportunidades!
+      </p>
+      <p class="text-sm text-gray-500">
+        Continue atualizando os dados de Cross Sell para identificar novas oportunidades.
+      </p>
+      <a href="{{ url_for('clientes.cross_sell') }}"
+         class="mt-6 inline-block px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium">
+        🎯 Ir para Cross Sell
+      </a>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Informações Adicionais -->
+<div class="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-6">
+  <div class="flex items-start gap-4">
+    <div class="text-3xl">💡</div>
+    <div>
+      <h3 class="font-bold text-gray-800 mb-2">Como funcionam os Insights?</h3>
+      <div class="text-sm text-gray-700 space-y-2">
+        <p>• Os insights são gerados automaticamente através de análise dos dados dos seus clientes</p>
+        <p>• Cruzamos informações de NET, modelo, produtos apresentados e outras variáveis</p>
+        <p>• As oportunidades são priorizadas por potencial de impacto e relevância</p>
+        <p>• Mantenha os dados de Cross Sell atualizados para insights mais precisos</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleClientes(insightId) {
+  const elemento = document.getElementById(insightId);
+  const toggleText = document.getElementById('toggle-text-' + insightId);
+
+  if (elemento.classList.contains('hidden')) {
+    elemento.classList.remove('hidden');
+    toggleText.textContent = 'Ocultar Clientes ↑';
+  } else {
+    elemento.classList.add('hidden');
+    toggleText.textContent = 'Ver Clientes →';
+  }
+}
+</script>
+
+{% endblock %}

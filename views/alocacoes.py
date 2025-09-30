@@ -276,14 +276,26 @@ def _carregar_clientes():
             clientes = []
     return clientes
 
-def _carregar_produtos():
-    """Carrega lista de produtos do usuário com cache."""
+def _carregar_produtos(campos_completos=False):
+    """
+    Carrega lista de produtos do usuário com cache.
+
+    Args:
+        campos_completos: Se True, busca todos os campos (id, nome, classe, roa_pct, em_campanha, campanha_mes)
+                         Se False, busca apenas (id, nome, classe) - mais rápido para dropdowns
+    """
     produtos = []
     uid = _uid()
     supabase = _get_supabase()
     if supabase:
         try:
-            pres = supabase.table("produtos").select("id, nome, classe").order("nome")
+            # 🚀 OTIMIZAÇÃO: Permitir buscar campos completos de uma vez
+            if campos_completos:
+                select_fields = "id, nome, classe, roa_pct, em_campanha, campanha_mes"
+            else:
+                select_fields = "id, nome, classe"
+
+            pres = supabase.table("produtos").select(select_fields).order("nome")
             if uid:
                 pres = pres.eq("user_id", uid)
             else:
@@ -409,18 +421,8 @@ def index():
     for status in kanban:
         kanban[status].sort(key=lambda x: (x.get("cliente", {}).get("nome") or "").upper())
 
-    # Buscar produtos para o simulador de meta
-    produtos_data = []
-    supabase_produtos = _get_supabase()
-    if supabase_produtos:
-        try:
-            uid = _uid()
-            if uid:
-                q = supabase_produtos.table("produtos").select("id, nome, classe, roa_pct, em_campanha, campanha_mes").eq("user_id", uid)
-                resp = q.execute()
-                produtos_data = resp.data or []
-        except Exception:
-            pass
+    # 🚀 OTIMIZAÇÃO: Buscar produtos completos uma única vez (elimina query duplicada)
+    produtos_data = _carregar_produtos(campos_completos=True)
     
     # BÔNUS/MISSÕES - Carregar bônus do mês atual
     bonus_list = _carregar_bonus_mes()
