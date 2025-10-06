@@ -1,0 +1,742 @@
+{% extends "base.html" %}
+{% block title %}Asset Allocation — Rota Assessoria{% endblock %}
+{% block subtitle %}Análise de Distribuição de Ativos{% endblock %}
+{% block content %}
+
+<!-- Header Moderno -->
+<div class="relative mb-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-700 rounded-3xl p-6 text-white overflow-hidden">
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-64 h-64 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-64 h-64 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-xl">📊</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Asset Allocation</h1>
+        </div>
+        <p class="text-purple-100 text-sm md:text-base">Visualize a distribuição de ativos por categoria</p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <a href="{{ url_for('clientes.insights') }}"
+           class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+          💡 Insights
+        </a>
+        <a href="{{ url_for('clientes.index') }}"
+           class="px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
+          ← Voltar para Clientes
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Seleção de Cliente -->
+<div class="mb-6 bg-white rounded-xl border p-6">
+  <h2 class="text-lg font-bold text-gray-800 mb-4">🔍 Selecione um Cliente</h2>
+
+  {% if not clientes %}
+  <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800">
+    <p class="font-medium">⚠️ Nenhum dado disponível</p>
+    <p class="text-sm mt-1">
+      Faça o upload do arquivo <strong>Diversificador.xlsx</strong> na tela de
+      <a href="{{ url_for('diversificador.index') }}" class="underline font-bold">Diversificador</a>
+      para visualizar a distribuição de ativos.
+    </p>
+  </div>
+  {% else %}
+  <form method="get" action="{{ url_for('clientes.asset_allocation') }}" class="flex gap-3">
+    <select name="cliente" required
+            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+      <option value="">-- Selecione um cliente --</option>
+      {% for cliente in clientes %}
+      <option value="{{ cliente.codigo }}" {% if cliente.codigo == cliente_selecionado %}selected{% endif %}>
+        {{ cliente.nome }}
+      </option>
+      {% endfor %}
+    </select>
+    <button type="submit"
+            class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 font-medium">
+      Visualizar
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- Visualização de Dados -->
+{% if cliente_selecionado %}
+<div class="space-y-6">
+
+  <!-- 💰 EXPOSIÇÃO RENDA FIXA (NOVO) -->
+  {% if exposicao_rf and exposicao_rf.total_rf and exposicao_rf.total_rf > 0 %}
+  <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 p-6">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-3xl">💰</span>
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Exposição Renda Fixa</h2>
+        <p class="text-sm text-gray-600">Distribuição por tipo de indexador</p>
+      </div>
+    </div>
+
+    <!-- Grid de Cards RF -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+      <!-- Card Pós-fixado -->
+      <div class="bg-white rounded-xl shadow-lg p-5 border border-blue-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+            <span class="text-xl">📈</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xs font-medium text-gray-600">Pós-fixado</h3>
+            <p class="text-xs text-gray-500">CDI, Selic, LFT</p>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-2xl font-bold text-blue-600">{{ "%.1f"|format(exposicao_rf.pos_fixado.percentual) }}%</div>
+          <div class="text-xs text-gray-600 font-mono">{{ exposicao_rf.pos_fixado.total|brl }}</div>
+          {% if exposicao_rf.pos_fixado.taxa_ponderada and exposicao_rf.pos_fixado.taxa_ponderada > 0 %}
+          <div class="text-xs text-blue-600 font-bold mt-1">Taxa: {{ "%.2f"|format(exposicao_rf.pos_fixado.taxa_ponderada) }}% CDI</div>
+          {% endif %}
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_rf.pos_fixado.percentual }}%"></div>
+        </div>
+      </div>
+
+      <!-- Card Prefixado -->
+      <div class="bg-white rounded-xl shadow-lg p-5 border border-purple-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+            <span class="text-xl">📊</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xs font-medium text-gray-600">Prefixado</h3>
+            <p class="text-xs text-gray-500">Taxa fixa</p>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-2xl font-bold text-purple-600">{{ "%.1f"|format(exposicao_rf.pre_fixado.percentual) }}%</div>
+          <div class="text-xs text-gray-600 font-mono">{{ exposicao_rf.pre_fixado.total|brl }}</div>
+          {% if exposicao_rf.pre_fixado.taxa_ponderada and exposicao_rf.pre_fixado.taxa_ponderada > 0 %}
+          <div class="text-xs text-purple-600 font-bold mt-1">Taxa: {{ "%.2f"|format(exposicao_rf.pre_fixado.taxa_ponderada) }}% a.a.</div>
+          {% endif %}
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_rf.pre_fixado.percentual }}%"></div>
+        </div>
+      </div>
+
+      <!-- Card Inflação -->
+      <div class="bg-white rounded-xl shadow-lg p-5 border border-orange-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
+            <span class="text-xl">📉</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xs font-medium text-gray-600">Inflação</h3>
+            <p class="text-xs text-gray-500">IPCA</p>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-2xl font-bold text-orange-600">{{ "%.1f"|format(exposicao_rf.inflacao.percentual) }}%</div>
+          <div class="text-xs text-gray-600 font-mono">{{ exposicao_rf.inflacao.total|brl }}</div>
+          {% if exposicao_rf.inflacao.taxa_ponderada and exposicao_rf.inflacao.taxa_ponderada > 0 %}
+          <div class="text-xs text-orange-600 font-bold mt-1">Taxa: IPCA + {{ "%.2f"|format(exposicao_rf.inflacao.taxa_ponderada) }}%</div>
+          {% endif %}
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-gradient-to-r from-orange-400 to-orange-600 h-2 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_rf.inflacao.percentual }}%"></div>
+        </div>
+      </div>
+
+      <!-- Card Internacional -->
+      <div class="bg-white rounded-xl shadow-lg p-5 border border-teal-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-10 h-10 bg-teal-100 rounded-xl flex items-center justify-center">
+            <span class="text-xl">🌎</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xs font-medium text-gray-600">Internacional</h3>
+            <p class="text-xs text-gray-500">Dólar</p>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="text-2xl font-bold text-teal-600">{{ "%.1f"|format(exposicao_rf.internacional.percentual) }}%</div>
+          <div class="text-xs text-gray-600 font-mono">{{ exposicao_rf.internacional.total|brl }}</div>
+          {% if exposicao_rf.internacional.taxa_ponderada and exposicao_rf.internacional.taxa_ponderada > 0 %}
+          <div class="text-xs text-teal-600 font-bold mt-1">Taxa: {{ "%.2f"|format(exposicao_rf.internacional.taxa_ponderada) }}% a.a.</div>
+          {% endif %}
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-gradient-to-r from-teal-400 to-teal-600 h-2 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_rf.internacional.percentual }}%"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Total RF -->
+    <div class="bg-white rounded-xl shadow-lg p-4 border border-green-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-medium text-gray-600">Total Renda Fixa</h3>
+          <p class="text-xs text-gray-500">Valor total da custódia</p>
+        </div>
+        <div class="text-right">
+          <div class="text-2xl font-bold text-green-600">{{ exposicao_rf.total_rf|brl }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfico de Exposição RF por Indexador -->
+    <div class="bg-white rounded-xl shadow-lg p-6 border border-green-200 mt-6">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+          <span class="text-xl">📊</span>
+        </div>
+        <div class="flex-1">
+          <h3 class="text-xl font-bold text-gray-800">Gráfico de Exposição por Indexador</h3>
+          <p class="text-sm text-gray-600">Distribuição percentual dos tipos de indexadores</p>
+        </div>
+      </div>
+
+      <div class="flex flex-col md:flex-row items-center gap-8">
+        <!-- Gráfico de Pizza -->
+        <div class="w-full md:w-1/2 flex justify-center">
+          <div class="relative" style="max-width: 320px;">
+            <canvas id="chartExposicaoIndexadores"></canvas>
+          </div>
+        </div>
+
+        <!-- Legenda -->
+        <div class="w-full md:w-1/2 space-y-4">
+          <div class="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-400 to-blue-600"></div>
+            <div class="flex-1">
+              <div class="text-sm font-semibold text-gray-800">Pós-fixado</div>
+              <div class="text-xs text-gray-600">CDI, Selic, LFT, Renda+</div>
+            </div>
+            <div class="text-right">
+              <div class="text-lg font-bold text-blue-600">{{ "%.1f"|format(exposicao_rf.pos_fixado.percentual) }}%</div>
+              <div class="text-xs text-gray-600">{{ exposicao_rf.pos_fixado.total|brl }}</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-400 to-purple-600"></div>
+            <div class="flex-1">
+              <div class="text-sm font-semibold text-gray-800">Prefixado</div>
+              <div class="text-xs text-gray-600">Taxa fixa</div>
+            </div>
+            <div class="text-right">
+              <div class="text-lg font-bold text-purple-600">{{ "%.1f"|format(exposicao_rf.pre_fixado.percentual) }}%</div>
+              <div class="text-xs text-gray-600">{{ exposicao_rf.pre_fixado.total|brl }}</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 p-3 bg-orange-50 rounded-lg">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-orange-400 to-orange-600"></div>
+            <div class="flex-1">
+              <div class="text-sm font-semibold text-gray-800">Inflação</div>
+              <div class="text-xs text-gray-600">IPCA</div>
+            </div>
+            <div class="text-right">
+              <div class="text-lg font-bold text-orange-600">{{ "%.1f"|format(exposicao_rf.inflacao.percentual) }}%</div>
+              <div class="text-xs text-gray-600">{{ exposicao_rf.inflacao.total|brl }}</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 p-3 bg-teal-50 rounded-lg">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-400 to-teal-600"></div>
+            <div class="flex-1">
+              <div class="text-sm font-semibold text-gray-800">Internacional</div>
+              <div class="text-xs text-gray-600">Dólar PTAX</div>
+            </div>
+            <div class="text-right">
+              <div class="text-lg font-bold text-teal-600">{{ "%.1f"|format(exposicao_rf.internacional.percentual) }}%</div>
+              <div class="text-xs text-gray-600">{{ exposicao_rf.internacional.total|brl }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
+  <!-- 🎨 EXPOSIÇÃO POR TIPO DE ATIVO (NOVO) -->
+  {% if exposicao_por_tipo and exposicao_por_tipo.total_geral > 0 %}
+  <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200 p-6">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-3xl">🎯</span>
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Exposição por Tipo de Ativo</h2>
+        <p class="text-sm text-gray-600">Classificação detalhada dos investimentos</p>
+      </div>
+    </div>
+
+    <!-- Grid de Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+      <!-- Card Emissão Bancária -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-blue-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">🏦</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Emissão Bancária</h3>
+            <p class="text-xs text-gray-500">CDB, LCI, LCA, LCD, LF</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-blue-600">{{ "%.1f"|format(exposicao_por_tipo.emissao_bancaria.percentual) }}%</div>
+          <div class="text-sm text-gray-600 font-mono">{{ exposicao_por_tipo.emissao_bancaria.total|brl }}</div>          
+        </div>
+        <!-- Barra de Progresso -->
+        <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
+          <div class="bg-gradient-to-r from-blue-400 to-blue-600 h-3 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_por_tipo.emissao_bancaria.percentual }}%"></div>
+        </div>        
+      </div>
+
+      <!-- Card Crédito Privado -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-purple-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">📜</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Crédito Privado</h3>
+            <p class="text-xs text-gray-500">DEB, CDCA, CRA, CRI, FIDC</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-purple-600">{{ "%.1f"|format(exposicao_por_tipo.credito_privado.percentual) }}%</div>
+          <div class="text-sm text-gray-600 font-mono">{{ exposicao_por_tipo.credito_privado.total|brl }}</div>          
+        </div>
+        <!-- Barra de Progresso -->
+        <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
+          <div class="bg-gradient-to-r from-purple-400 to-purple-600 h-3 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_por_tipo.credito_privado.percentual }}%"></div>
+        </div>        
+      </div>
+
+      <!-- Card Título Público -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-green-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">🏛️</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Título Público</h3>
+            <p class="text-xs text-gray-500">NTN-B, LFT, LTN, NTN-F, NTN-C</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-green-600">{{ "%.1f"|format(exposicao_por_tipo.titulo_publico.percentual) }}%</div>
+          <div class="text-sm text-gray-600 font-mono">{{ exposicao_por_tipo.titulo_publico.total|brl }}</div>          
+        </div>
+        <!-- Barra de Progresso -->
+        <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
+          <div class="bg-gradient-to-r from-green-400 to-green-600 h-3 rounded-full transition-all duration-500"
+               style="width: {{ exposicao_por_tipo.titulo_publico.percentual }}%"></div>
+        </div>        
+      </div>
+    </div>
+
+    <!-- 🔍 ANÁLISE DETALHADA: VENCIMENTOS E EMISSORES -->
+    {% if credito_privado_vencimentos or credito_privado_emissores %}
+    <div class="bg-purple-50 rounded-xl border-2 border-purple-200 p-6 mt-6">
+      <div class="flex items-center gap-3 mb-6">
+        <span class="text-3xl">🔍</span>
+        <div>
+          <h3 class="text-xl font-bold text-gray-800">Análise Detalhada</h3>
+          <p class="text-sm text-gray-600">Vencimentos da Carteira e Exposição por Emissor (Crédito Privado)</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <!-- Card de Vencimentos -->
+        <div class="bg-white rounded-xl shadow-lg p-6 border border-purple-200">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <span class="text-xl">📅</span>
+            </div>
+            <div class="flex-1">
+              <h4 class="text-base font-bold text-gray-800">Distribuição por Vencimento</h4>
+              <p class="text-xs text-gray-500">Valores somados por ano de vencimento</p>
+            </div>
+          </div>
+
+          {% if credito_privado_vencimentos %}
+          <!-- Gráfico de Barras -->
+          <div>
+            <canvas id="chartVencimentos" style="max-height: 300px;"></canvas>
+          </div>
+          {% else %}
+          <p class="text-sm text-gray-500">Nenhum dado de vencimento disponível.</p>
+          {% endif %}
+        </div>
+
+        <!-- Card de Exposição por Emissor -->
+        <div class="bg-white rounded-xl shadow-lg p-6 border border-purple-200">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <span class="text-xl">🏢</span>
+            </div>
+            <div class="flex-1">
+              <h4 class="text-base font-bold text-gray-800">Exposição por Emissor</h4>
+              <p class="text-xs text-gray-500">Top emissores de Crédito Privado</p>
+            </div>
+          </div>
+
+          {% if credito_privado_emissores %}
+          <div class="space-y-3">
+            {% for emissor in credito_privado_emissores %}
+            <div class="{% if emissor.acima_fgc %}border-2 border-amber-400 bg-amber-50 rounded-lg p-3{% else %}border-b border-gray-100{% endif %} pb-3 last:border-b-0">
+              <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center gap-2 flex-1">
+                  {% if emissor.acima_fgc %}
+                  <span class="text-amber-600 text-base" title="Acima da cobertura do FGC (R$ 250.000)">⚠️</span>
+                  {% endif %}
+                  <span class="text-sm font-medium {% if emissor.acima_fgc %}text-amber-900{% else %}text-gray-700{% endif %} truncate">{{ emissor.nome }}</span>
+                </div>
+                <span class="text-sm font-bold {% if emissor.acima_fgc %}text-amber-700{% else %}text-purple-600{% endif %} ml-2">{{ "%.1f"|format(emissor.percentual_carteira) }}%</span>
+              </div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs {% if emissor.acima_fgc %}text-amber-700 font-semibold{% else %}text-gray-500{% endif %}">{{ emissor.total|brl }}</span>
+                <span class="text-xs {% if emissor.acima_fgc %}text-amber-600{% else %}text-gray-500{% endif %}">{{ emissor.count }} ativo(s)</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="{% if emissor.acima_fgc %}bg-gradient-to-r from-amber-400 to-amber-600{% else %}bg-gradient-to-r from-purple-400 to-purple-600{% endif %} h-2 rounded-full transition-all duration-500"
+                     style="width: {{ emissor.percentual_carteira }}%"></div>
+              </div>
+              {% if emissor.acima_fgc %}
+              <div class="mt-2 text-xs text-amber-700 font-medium">
+                ⚠️ Exposição acima da cobertura do FGC (R$ 250.000)
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-sm text-gray-500">Nenhum dado de emissor disponível.</p>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+    {% endif %}
+    
+  </div>
+  {% endif %}
+
+  
+
+  
+  </div>  
+</div>
+{% endif %}
+
+<!-- Chart.js Script -->
+{% if cliente_selecionado and (exposicao_rf or (exposicao_por_tipo and exposicao_por_tipo.total_geral > 0)) %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Função para formatar valores no padrão brasileiro
+  function formatarValorBR(valor) {
+    return valor.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // Gráfico de Rosca - Exposição Geral
+    const ctx = document.getElementById('chartExposicaoGeral');
+    if (ctx) {
+      {% if exposicao_rf and exposicao_rf.total_rf and exposicao_rf.total_rf > 0 %}
+      // Gráfico por Classe de Indexador (quando há dados de custodia_rf)
+      const data = {
+        labels: ['Pós-fixado', 'Prefixado', 'Inflação', 'Internacional'],
+        datasets: [{
+          data: [
+            {{ exposicao_rf.pos_fixado.percentual }},
+            {{ exposicao_rf.pre_fixado.percentual }},
+            {{ exposicao_rf.inflacao.percentual }},
+            {{ exposicao_rf.internacional.percentual }}
+          ],
+          backgroundColor: [
+            'rgb(59, 130, 246)',    // Blue-500 (Pós-fixado)
+            'rgb(168, 85, 247)',    // Purple-500 (Prefixado)
+            'rgb(249, 115, 22)',    // Orange-500 (Inflação)
+            'rgb(20, 184, 166)'     // Teal-500 (Internacional)
+          ],
+          borderColor: [
+            'rgb(37, 99, 235)',     // Blue-600
+            'rgb(147, 51, 234)',    // Purple-600
+            'rgb(234, 88, 12)',     // Orange-600
+            'rgb(13, 148, 136)'     // Teal-600
+          ],
+          borderWidth: 2,
+          hoverOffset: 15
+        }]
+      };
+      {% else %}
+      // Gráfico por Tipo de Ativo (fallback - dados do diversificador)
+      const data = {
+        labels: ['Emissão Bancária', 'Crédito Privado', 'Título Público'],
+        datasets: [{
+          data: [
+            {{ exposicao_por_tipo.emissao_bancaria.percentual }},
+            {{ exposicao_por_tipo.credito_privado.percentual }},
+            {{ exposicao_por_tipo.titulo_publico.percentual }}
+          ],
+          backgroundColor: [
+            'rgb(59, 130, 246)',    // Blue-500
+            'rgb(168, 85, 247)',    // Purple-500
+            'rgb(34, 197, 94)'      // Green-500
+          ],
+          borderColor: [
+            'rgb(37, 99, 235)',     // Blue-600
+            'rgb(147, 51, 234)',    // Purple-600
+            'rgb(22, 163, 74)'      // Green-600
+          ],
+          borderWidth: 2,
+          hoverOffset: 15
+        }]
+      };
+      {% endif %}
+
+      const config = {
+        type: 'doughnut',
+        data: data,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed || 0;
+                  return label + ': ' + value.toFixed(1) + '%';
+                }
+              },
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: 'white',
+              bodyColor: 'white',
+              padding: 12,
+              cornerRadius: 8,
+              displayColors: true
+            }
+          },
+          cutout: '65%',
+          animation: {
+            animateRotate: true,
+            animateScale: true,
+            duration: 1000,
+            easing: 'easeInOutQuart'
+          }
+        }
+      };
+
+      new Chart(ctx, config);
+    }
+
+    // Gráfico de Barras - Vencimentos
+    const ctxVenc = document.getElementById('chartVencimentos');
+    if (ctxVenc) {
+      {% if credito_privado_vencimentos %}
+      const vencimentosData = {
+        labels: [
+          {% for venc in credito_privado_vencimentos %}
+          '{{ venc.label }}'{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        datasets: [{
+          label: 'Valor (R$)',
+          data: [
+            {% for venc in credito_privado_vencimentos %}
+            {{ venc.total }}{% if not loop.last %},{% endif %}
+            {% endfor %}
+          ],
+          backgroundColor: 'rgba(168, 85, 247, 0.8)',  // Purple-500
+          borderColor: 'rgb(147, 51, 234)',             // Purple-600
+          borderWidth: 2,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(147, 51, 234, 0.9)'
+        }]
+      };
+
+      const vencimentosConfig = {
+        type: 'bar',
+        data: vencimentosData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          indexAxis: 'y',  // Barras horizontais
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const value = context.parsed.x || 0;
+                  return 'R$ ' + formatarValorBR(value);
+                }
+              },
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: 'white',
+              bodyColor: 'white',
+              padding: 12,
+              cornerRadius: 8
+            }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return 'R$ ' + (value / 1000).toFixed(0) + 'k';
+                },
+                font: {
+                  size: 11
+                }
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            y: {
+              ticks: {
+                font: {
+                  size: 11,
+                  weight: '500'
+                }
+              },
+              grid: {
+                display: false
+              }
+            }
+          },
+          animation: {
+            duration: 1000,
+            easing: 'easeInOutQuart'
+          }
+        }
+      };
+
+      new Chart(ctxVenc, vencimentosConfig);
+      {% endif %}
+    }
+
+    // Gráfico de Exposição RF por Indexador
+    const ctxIndexadores = document.getElementById('chartExposicaoIndexadores');
+    if (ctxIndexadores) {
+      {% if exposicao_rf and exposicao_rf.total_rf and exposicao_rf.total_rf > 0 %}
+      const indexadoresData = {
+        labels: ['Pós-fixado', 'Prefixado', 'Inflação', 'Internacional'],
+        datasets: [{
+          data: [
+            {{ exposicao_rf.pos_fixado.percentual }},
+            {{ exposicao_rf.pre_fixado.percentual }},
+            {{ exposicao_rf.inflacao.percentual }},
+            {{ exposicao_rf.internacional.percentual }}
+          ],
+          backgroundColor: [
+            'rgba(59, 130, 246, 0.85)',     // Blue-500 (Pós-fixado)
+            'rgba(168, 85, 247, 0.85)',     // Purple-500 (Prefixado)
+            'rgba(249, 115, 22, 0.85)',     // Orange-500 (Inflação)
+            'rgba(20, 184, 166, 0.85)'      // Teal-500 (Internacional)
+          ],
+          borderColor: [
+            'rgb(37, 99, 235)',             // Blue-600
+            'rgb(147, 51, 234)',            // Purple-600
+            'rgb(234, 88, 12)',             // Orange-600
+            'rgb(13, 148, 136)'             // Teal-600
+          ],
+          borderWidth: 3,
+          hoverOffset: 20,
+          hoverBorderWidth: 4
+        }]
+      };
+
+      const indexadoresConfig = {
+        type: 'doughnut',
+        data: indexadoresData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed || 0;
+                  const total = {{ exposicao_rf.total_rf }};
+                  const indexValues = [
+                    {{ exposicao_rf.pos_fixado.total }},
+                    {{ exposicao_rf.pre_fixado.total }},
+                    {{ exposicao_rf.inflacao.total }},
+                    {{ exposicao_rf.internacional.total }}
+                  ];
+                  const valorAbsoluto = indexValues[context.dataIndex];
+                  return [
+                    label + ': ' + value.toFixed(1) + '%',
+                    'R$ ' + formatarValorBR(valorAbsoluto)
+                  ];
+                }
+              },
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              titleColor: 'white',
+              bodyColor: 'white',
+              padding: 14,
+              cornerRadius: 10,
+              displayColors: true,
+              boxWidth: 12,
+              boxHeight: 12,
+              bodyFont: {
+                size: 13
+              },
+              titleFont: {
+                size: 14,
+                weight: 'bold'
+              }
+            }
+          },
+          cutout: '60%',
+          animation: {
+            animateRotate: true,
+            animateScale: true,
+            duration: 1200,
+            easing: 'easeInOutQuart'
+          }
+        }
+      };
+
+      new Chart(ctxIndexadores, indexadoresConfig);
+      {% endif %}
+    }
+  });
+</script>
+{% endif %}
+
+{% endblock %}

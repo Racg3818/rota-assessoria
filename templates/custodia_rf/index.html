@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Importar Custódia RF — Rota Assessoria{% endblock %}
+{% block subtitle %}Importação de Custódia de Renda Fixa{% endblock %}
+{% block content %}
+
+<div class="max-w-3xl mx-auto">
+  <div class="bg-white rounded-2xl shadow p-6 md:p-8">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h2 class="text-xl font-semibold flex items-center gap-2">
+          <span>💰</span>
+          Importar Custódia RF
+        </h2>
+        <p class="text-sm text-gray-600 mt-1">
+          Importe o arquivo Custódia.xlsx para analisar a exposição de Renda Fixa dos seus clientes.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-6">
+      <div>
+        <label for="competencia" class="block text-sm font-medium text-gray-800 mb-1">Competência</label>
+        <input
+          id="competencia" name="competencia" type="month" required
+          value="{{ default_month }}"
+          class="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" />
+        <p class="mt-1 text-xs text-gray-500">
+          Formato: YYYY-MM (exemplo: 2024-10)
+        </p>
+      </div>
+
+      <div>
+        <label for="arquivo" class="block text-sm font-medium text-gray-800 mb-1">Arquivo Custódia RF</label>
+        <input
+          id="arquivo" name="arquivo" type="file" accept=".xlsx" required
+          class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500" />
+        <p class="mt-2 text-xs text-gray-500">
+          Aceita apenas <strong>.xlsx</strong> (arquivo Excel da Custódia RF).
+        </p>
+      </div>
+
+      <div class="bg-green-50 rounded-lg p-4 border border-green-200">
+        <h3 class="font-medium text-green-900 mb-2">💡 Como usar:</h3>
+        <ul class="list-disc pl-5 space-y-1 text-sm text-green-800">
+          <li>Baixe o arquivo Custódia.xlsx da XP</li>
+          <li>Selecione a competência (mês/ano) dos dados</li>
+          <li>Faça upload do arquivo (.xlsx)</li>
+          <li>Os dados de exposição de RF serão disponibilizados na tela de Asset Allocation</li>
+        </ul>
+      </div>
+
+      <div class="bg-amber-50 rounded-lg p-4 border border-amber-200">
+        <h3 class="font-medium text-amber-900 mb-2">⚠️ Colunas esperadas no arquivo:</h3>
+        <div class="grid grid-cols-2 gap-2 text-xs text-amber-800">
+          <div>✓ Cód. Assessor</div>
+          <div>✓ Cód. conta</div>
+          <div>✓ Ticker</div>
+          <div>✓ Nome papel</div>
+          <div>✓ Custódia</div>
+          <div>✓ Vencimento</div>
+          <div>✓ indexador</div>
+          <div>✓ Taxa cliente</div>
+        </div>
+      </div>
+
+      <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
+        <h3 class="font-medium text-purple-900 mb-2">📊 Classificação de Indexadores:</h3>
+        <div class="space-y-2 text-xs text-purple-800">
+          <div><strong>Pós-fixado:</strong> % CDI, CDI +, LFT, Renda+, Selic</div>
+          <div><strong>Inflação:</strong> IPCA</div>
+          <div><strong>Prefixado:</strong> PRE, PRÉ</div>
+          <div><strong>Internacional:</strong> DOLAR PTAX</div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3">
+        <a href="{{ url_for('dashboard.index') }}"
+           class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+          Cancelar
+        </a>
+        <button type="submit"
+                class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+          💰 Importar Dados
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

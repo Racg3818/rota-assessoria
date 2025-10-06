@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}Ajuda - Rota Assessoria{% endblock %}
+{% block subtitle %}Ajuda{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8">
+        <div class="flex items-center gap-4 mb-4">
+            <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">Central de Ajuda</h1>
+                <p class="text-gray-600 mt-1">Instruções para download de arquivos necessários</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cards de Instruções -->
+    <div class="space-y-6">
+
+        <!-- FinAdvisor -->
+        <div class="bg-white rounded-2xl shadow-card border border-gray-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-white/20 backdrop-blur-lg rounded-xl flex items-center justify-center">
+                        <span class="text-2xl">📄</span>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Arquivo FinAdvisor</h2>
+                        <p class="text-blue-100 text-sm">DRA Clientes (CSV)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6">
+                <ol class="space-y-4">
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            1
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Acesse o site <a href="https://finadvisors.warpapp.com.br/" target="_blank" class="text-blue-600 hover:text-blue-700 font-medium underline">finadvisors.warpapp.com.br</a></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            2
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Insira o seu <strong>login e senha</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            3
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Vá em <strong>COMISSÕES → DRA</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            4
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Selecione o <strong>mês</strong> que deseja baixar</p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            5
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Vá até o botão <strong>Consultas</strong> (canto superior direito da tela)</p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            6
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Selecione a opção <strong>DRA Clientes</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            7
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Baixe o arquivo no formato <strong>CSV</strong></p>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Diversificador -->
+        <div class="bg-white rounded-2xl shadow-card border border-gray-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-purple-500 to-purple-600 px-6 py-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-white/20 backdrop-blur-lg rounded-xl flex items-center justify-center">
+                        <span class="text-2xl">📊</span>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Arquivo Diversificador</h2>
+                        <p class="text-purple-100 text-sm">Relatório de Diversificação (XP)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6">
+                <ol class="space-y-4">
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            1
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Faça o login no <strong>Hub XP</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            2
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Vá até o <strong>menu lateral</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            3
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Clique em <strong>Gestão → Relatório de Operações</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            4
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Em <strong>Tipo de relatório</strong>, selecione a opção <strong>Diversificação</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            5
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Em <strong>Datas disponíveis</strong>, selecione a <strong>data mais recente</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            6
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Clique em <strong>Download</strong></p>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Custódia RF -->
+        <div class="bg-white rounded-2xl shadow-card border border-gray-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-green-500 to-green-600 px-6 py-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-white/20 backdrop-blur-lg rounded-xl flex items-center justify-center">
+                        <span class="text-2xl">💰</span>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Arquivo Custódia RF</h2>
+                        <p class="text-green-100 text-sm">Custódia em Liquidez Diária (XP)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6">
+                <ol class="space-y-4">
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            1
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Acesse o <strong>Hub XP</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            2
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Vá até o <strong>menu lateral</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            3
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Clique em <strong>Gestão → Renda Fixa</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            4
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Com o dashboard aberto, clique na opção do rodapé chamada <strong>Custódia</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            5
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Desça a tela até encontrar o <strong>Painel de gestão de concentração em Liquidez Diária</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            6
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Na tabela <strong>Custódia em LD</strong>, vá até o canto superior da tabela e clique nos <strong>três pontinhos (...)</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            7
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Selecione a opção <strong>Exportar dados → Dados com layout atual</strong></p>
+                        </div>
+                    </li>
+                    <li class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-semibold text-sm">
+                            8
+                        </div>
+                        <div class="flex-1 pt-1">
+                            <p class="text-gray-700">Clique em <strong>Exportar</strong></p>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Nota de Rodapé -->
+    <div class="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-2xl">
+        <div class="flex gap-3">
+            <svg class="w-6 h-6 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+                <h3 class="font-semibold text-blue-900 mb-2">Dica Importante</h3>
+                <p class="text-blue-800 text-sm">Após baixar os arquivos, você pode importá-los nas respectivas seções do sistema através do menu lateral. Certifique-se de que os arquivos estejam no formato correto antes de realizar a importação.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

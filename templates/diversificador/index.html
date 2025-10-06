@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Importar Diversificador — Rota Assessoria{% endblock %}
+{% block subtitle %}Importação de Posições de Clientes{% endblock %}
+{% block content %}
+
+<div class="max-w-3xl mx-auto">
+  <div class="bg-white rounded-2xl shadow p-6 md:p-8">
+    <div class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h2 class="text-xl font-semibold flex items-center gap-2">
+          <span>📊</span>
+          Importar Diversificador
+        </h2>
+        <p class="text-sm text-gray-600 mt-1">
+          Importe o arquivo Diversificador.xlsx para analisar a distribuição de ativos dos seus clientes.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-6">
+      <div>
+        <label for="competencia" class="block text-sm font-medium text-gray-800 mb-1">Competência</label>
+        <input
+          id="competencia" name="competencia" type="month" required
+          value="{{ default_month }}"
+          class="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+        <p class="mt-1 text-xs text-gray-500">
+          Formato: YYYY-MM (exemplo: 2024-10)
+        </p>
+      </div>
+
+      <div>
+        <label for="arquivo" class="block text-sm font-medium text-gray-800 mb-1">Arquivo Diversificador</label>
+        <input
+          id="arquivo" name="arquivo" type="file" accept=".xlsx" required
+          class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <p class="mt-2 text-xs text-gray-500">
+          Aceita apenas <strong>.xlsx</strong> (arquivo Excel do Diversificador).
+        </p>
+      </div>
+
+      <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+        <h3 class="font-medium text-blue-900 mb-2">💡 Como usar:</h3>
+        <ul class="list-disc pl-5 space-y-1 text-sm text-blue-800">
+          <li>Baixe o arquivo Diversificador.xlsx da XP</li>
+          <li>Selecione a competência (mês/ano) dos dados</li>
+          <li>Faça upload do arquivo (.xlsx)</li>
+          <li>Os dados serão processados e disponibilizados na tela de Asset Allocation</li>
+        </ul>
+      </div>
+
+      <div class="bg-amber-50 rounded-lg p-4 border border-amber-200">
+        <h3 class="font-medium text-amber-900 mb-2">⚠️ Colunas esperadas no arquivo:</h3>
+        <div class="grid grid-cols-2 gap-2 text-xs text-amber-800">
+          <div>✓ Assessor</div>
+          <div>✓ Cliente</div>
+          <div>✓ Produto</div>
+          <div>✓ Sub Produto</div>
+          <div>✓ Produto em Garantia</div>
+          <div>✓ CNPJ Fundo</div>
+          <div>✓ Ativo</div>
+          <div>✓ Emissor</div>
+          <div>✓ Data de Vencimento</div>
+          <div>✓ Quantidade</div>
+          <div>✓ NET</div>
+          <div>✓ Data</div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3">
+        <a href="{{ url_for('dashboard.index') }}"
+           class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+          Cancelar
+        </a>
+        <button type="submit"
+                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+          📊 Importar Dados
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
