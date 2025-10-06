@@ -92,9 +92,17 @@
 <!-- Tabela Detalhada por Usuário -->
 <div class="bg-white rounded-xl border overflow-hidden">
   <div class="p-6 border-b bg-gray-50">
-    <div class="flex items-center gap-3">
-      <span class="text-xl">👥</span>
-      <h2 class="text-xl font-bold text-gray-800">Métricas por Assessor</h2>
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-xl">👥</span>
+        <h2 class="text-xl font-bold text-gray-800">Métricas por Assessor</h2>
+      </div>
+      <form action="{{ url_for('admin.limpar_alocacoes_todas') }}" method="POST" onsubmit="return confirm('⚠️ ATENÇÃO: Esta ação irá excluir TODAS as alocações efetivadas de meses anteriores de TODOS os usuários monitorados.\n\nDeseja continuar?');" class="inline-block">
+        <button type="submit"
+                class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors shadow-md hover:shadow-lg">
+          🗑️ Limpar Alocações Antigas (Todos)
+        </button>
+      </form>
     </div>
   </div>
 

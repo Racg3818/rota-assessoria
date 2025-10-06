@@ -906,3 +906,78 @@ def index():
                              error=f"Erro interno: {str(e)}",
                              usuarios_metricas=[],
                              mes_atual=datetime.now().strftime("%Y-%m"))
+
+@admin_bp.route("/limpar-alocacoes-todas", methods=["POST"])
+@_admin_required
+def limpar_alocacoes_todas():
+    """
+    Limpa todas as alocações efetivadas de meses anteriores
+    para TODOS os usuários monitorados (apenas admin)
+    """
+    if not supabase:
+        from flask import jsonify
+        return jsonify({"success": False, "message": "Sistema indisponível"}), 500
+
+    try:
+        # Data do primeiro dia do mês atual
+        mes_atual = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        total_excluidas = 0
+        total_valor = 0.0
+        erros = []
+
+        # Buscar todos os user_ids dos usuários monitorados
+        users_res = supabase.table("profiles").select("id, email").in_("email", USUARIOS_MONITORADOS).execute()
+        users = users_res.data or []
+
+        for user in users:
+            user_id = user.get("id")
+            user_email = user.get("email")
+
+            try:
+                # Buscar alocações efetivadas criadas antes do mês atual deste usuário
+                resp_busca = supabase.table("alocacoes").select("id, created_at, valor").eq(
+                    "user_id", user_id
+                ).eq("efetivada", True).lt("created_at", mes_atual).execute()
+
+                alocacoes_antigas = resp_busca.data or []
+
+                if alocacoes_antigas:
+                    # Excluir as alocações
+                    for aloc in alocacoes_antigas:
+                        supabase.table("alocacoes").delete().eq("id", aloc.get("id")).eq("user_id", user_id).execute()
+                        total_valor += _to_float(aloc.get("valor", 0))
+                        total_excluidas += 1
+
+                    current_app.logger.info(f"ADMIN_LIMPAR: {len(alocacoes_antigas)} alocações excluídas para {user_email}")
+
+            except Exception as e:
+                current_app.logger.error(f"ADMIN_LIMPAR: Erro ao limpar alocações de {user_email}: {e}")
+                erros.append(f"{user_email}: {str(e)}")
+
+        # Invalidar cache global
+        try:
+            from cache_manager import invalidate_all_user_cache
+            invalidate_all_user_cache()
+        except Exception as e:
+            current_app.logger.warning(f"ADMIN_LIMPAR: Erro ao invalidar cache: {e}")
+
+        if erros:
+            from flask import flash
+            for erro in erros:
+                flash(f"Erro: {erro}", "error")
+
+        if total_excluidas > 0:
+            from flask import flash
+            flash(f"{total_excluidas} alocações antigas excluídas de todos os usuários (R$ {total_valor:,.2f})", "success")
+        else:
+            from flask import flash
+            flash("Nenhuma alocação antiga encontrada em nenhum usuário.", "info")
+
+    except Exception as e:
+        current_app.logger.exception("ADMIN_LIMPAR: Erro geral ao limpar alocações")
+        from flask import flash
+        flash("Erro ao limpar alocações antigas.", "error")
+
+    from flask import redirect, url_for
+    return redirect(url_for("admin.index"))
