@@ -499,7 +499,7 @@ def _meta_do_mes():
     # SEGURANÇA: Usar APENAS cliente autenticado para evitar vazamentos
     supabase = _get_supabase()
     mes = datetime.today().strftime("%Y-%m")
-    current_app.logger.info("META_DEBUG: === INICIANDO BUSCA PARA MES=%s ===", mes)
+    current_app.logger.info("META_DEBUG: === INICIANDO BUSCA (PERSISTENTE - IGNORA MÊS) ===")
 
     # Debug da sessão completa
     user_session = session.get("user", {})
@@ -521,38 +521,37 @@ def _meta_do_mes():
         # SEGURANÇA: Usar APENAS cliente autenticado com RLS ativo
         current_app.logger.info("META_DEBUG: Usando cliente autenticado com RLS para user_id=%s", uid)
 
+        # ✅ BUSCAR META MAIS RECENTE (PERSISTENTE - SEM FILTRO DE MÊS)
         res = (
             supabase.table("metas_mensais")
             .select("mes,meta_receita,user_id")
-            .eq("mes", mes)
             .eq("user_id", uid)  # FILTRO EXPLÍCITO OBRIGATÓRIO
+            .order("mes", desc=True)  # Mais recente primeiro
             .limit(1)
             .execute()
         )
         data = res.data or []
-        current_app.logger.info("META_DEBUG: Query com filtro explícito retornou %d registros: %s", len(data), data)
-        
+        current_app.logger.info("META_DEBUG: Query (persistente) retornou %d registros: %s", len(data), data)
+
         if data:
             meta_encontrada = data[0]
             meta_valor = _to_float(meta_encontrada.get("meta_receita"))
             meta_user_id = meta_encontrada.get("user_id")
-            
+            meta_mes = meta_encontrada.get("mes", mes)
+
             # VALIDAÇÃO ADICIONAL: Confirmar que o user_id da meta é o mesmo da sessão
             if meta_user_id == uid:
-                current_app.logger.info("META_DEBUG: ✅ Meta VÁLIDA encontrada! user_id=%s, valor=%s", meta_user_id, meta_valor)
-                return meta_encontrada.get("mes") or mes, meta_valor
+                current_app.logger.info("META_DEBUG: ✅ Meta VÁLIDA encontrada! user_id=%s, valor=%s (salva em %s)", meta_user_id, meta_valor, meta_mes)
+                return mes, meta_valor  # Retorna mês atual para exibição, mas valor é persistente
             else:
                 current_app.logger.error("META_DEBUG: 🚨 VAZAMENTO DETECTADO! Meta user_id=%s, sessão user_id=%s", meta_user_id, uid)
                 return mes, 0.0
         else:
-            current_app.logger.warning("META_DEBUG: Nenhuma meta encontrada para user_id=%s, mes=%s", uid, mes)
-            
-            # SEGURANÇA: Não fazer debug de TODAS as metas (vazamento de dados)
-            current_app.logger.info("META_DEBUG: Nenhuma meta encontrada para o usuário atual")
-            
+            current_app.logger.warning("META_DEBUG: Nenhuma meta encontrada para user_id=%s", uid)
+
     except Exception as e:
         current_app.logger.error("META_DEBUG: Erro ao buscar meta: %s", e)
-    
+
     return mes, 0.0
 
 

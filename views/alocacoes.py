@@ -1137,14 +1137,14 @@ def _calcular_simulador_meta(uid, receita_atual, produtos_data, alocacoes_data=N
         current_app.logger.warning("SIMULADOR_META: Erro ao carregar bônus: %s", e)
         bonus_ativo_mes = 0.0
     
-    # Buscar metas por classe do mês atual
+    # Buscar metas por classe (persistentes - sem filtro de mês)
     metas_por_classe = {}
     total_metas = 0.0
 
     try:
         if supabase and uid:
-            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
-            current_app.logger.info(f"DEBUG METAS: Encontradas {len(resp.data or [])} metas para {mes_atual}")
+            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).execute()
+            current_app.logger.info(f"DEBUG METAS: Encontradas {len(resp.data or [])} metas (persistentes)")
             for meta in resp.data or []:
                 classe = meta.get("classe", "")
                 meta_receita = _to_float(meta.get("meta_receita", 0))
@@ -1566,16 +1566,16 @@ def editar_bonus(bonus_id: str):
 @alocacoes_bp.route("/metas-escritorio")
 @login_required
 def metas_escritorio():
-    """Tela para definir metas de receita por classe de produto"""
+    """Tela para definir metas de receita por classe de produto - PERSISTENTES"""
     from datetime import datetime
-    
+
     uid = _uid()
     if not uid:
         flash("Sessão inválida.", "error")
         return redirect(url_for("alocacoes.index"))
-    
+
     mes_atual = datetime.now().strftime("%Y-%m")
-    
+
     # Classes de produto disponíveis (mesmas do cadastro de produtos)
     CLASSES_ATIVO = [
         "Câmbio", "COE", "Corporate", "Fundo Imobiliário", "Fundos",
@@ -1583,33 +1583,33 @@ def metas_escritorio():
         "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
         "Wealth Management (WM)",
     ]
-    
-    # Buscar metas existentes para o mês atual
+
+    # Buscar metas existentes (sem filtro de mês - metas são persistentes)
     metas_existentes = {}
     try:
         supabase = _get_supabase()
         if supabase:
-            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).eq("mes", mes_atual).execute()
+            resp = supabase.table("metas_escritorio_classe").select("*").eq("user_id", uid).execute()
             for meta in resp.data or []:
                 classe = meta.get("classe", "")
                 meta_receita = _to_float(meta.get("meta_receita", 0))
                 metas_existentes[classe] = meta_receita
     except Exception as e:
         current_app.logger.exception("Erro ao buscar metas por classe")
-    
+
     # Preparar dados para o template
     metas = []
     total_metas = 0.0
-    
+
     for classe in CLASSES_ATIVO:
         meta_receita = metas_existentes.get(classe, 0.0)
         total_metas += meta_receita
-        
+
         metas.append({
             "classe": classe,
             "meta_receita": meta_receita
         })
-    
+
     return render_template(
         "alocacoes/metas_escritorio.html",
         metas=metas,
@@ -1621,18 +1621,13 @@ def metas_escritorio():
 @alocacoes_bp.route("/metas-escritorio/salvar", methods=["POST"])
 @login_required
 def salvar_metas_escritorio():
-    """Salvar metas de receita por classe"""
+    """Salvar metas de receita por classe - PERSISTENTES (não zeram todo mês)"""
     supabase = _get_supabase()
     uid = _uid()
     if not uid:
         flash("Sessão inválida.", "error")
         return redirect(url_for("alocacoes.metas_escritorio"))
-    
-    mes = request.form.get("mes", "").strip()
-    if not mes:
-        flash("Mês é obrigatório.", "error")
-        return redirect(url_for("alocacoes.metas_escritorio"))
-    
+
     # Classes de produto disponíveis
     CLASSES_ATIVO = [
         "Câmbio", "COE", "Corporate", "Fundo Imobiliário", "Fundos",
@@ -1640,69 +1635,85 @@ def salvar_metas_escritorio():
         "Renda Fixa Digital", "Renda Variável (mesa)", "Seguro de Vida",
         "Wealth Management (WM)",
     ]
-    
+
     try:
         if not supabase:
             flash("Sistema indisponível.", "error")
             return redirect(url_for("alocacoes.metas_escritorio"))
-        
-        # Primeiro, excluir metas existentes para o mês
-        supabase.table("metas_escritorio_classe").delete().eq("user_id", uid).eq("mes", mes).execute()
-        
-        # Inserir novas metas
-        metas_para_inserir = []
+
         total_salvo = 0.0
-        
+
+        # ✅ UPSERT para cada classe: atualiza se existe, insere se não existe
+        # Isso faz as metas persistirem entre meses
         for classe in CLASSES_ATIVO:
             field_name = f"meta_{classe}"
             meta_valor = request.form.get(field_name, "").strip()
-            
+
             try:
                 meta_receita = float(meta_valor) if meta_valor else 0.0
             except ValueError:
                 meta_receita = 0.0
-            
-            # Permitir metas zero conforme solicitado pelo usuário
-            if meta_receita >= 0:
-                metas_para_inserir.append({
+
+            total_salvo += meta_receita
+
+            # Verificar se já existe meta para esta classe (independente do mês)
+            existing = supabase.table("metas_escritorio_classe").select("id").eq("user_id", uid).eq("classe", classe).execute()
+
+            if existing.data:
+                # Atualizar meta existente
+                supabase.table("metas_escritorio_classe").update({
+                    "meta_receita": meta_receita
+                }).eq("user_id", uid).eq("classe", classe).execute()
+            else:
+                # Inserir nova meta (sem campo mes, pois é persistente)
+                supabase.table("metas_escritorio_classe").insert({
                     "user_id": uid,
-                    "mes": mes,
                     "classe": classe,
                     "meta_receita": meta_receita
-                })
-                total_salvo += meta_receita
-        
-        if metas_para_inserir:
-            supabase.table("metas_escritorio_classe").insert(metas_para_inserir).execute()
-        
-        # Salvar a soma total na tabela metas_mensais (para compatibilidade com dashboard)
+                }).execute()
+
+        # ✅ IMPORTANTE: Atualizar também a tabela metas_mensais para compatibilidade com Dashboard
+        # Agora as metas são PERSISTENTES - busca a mais recente e atualiza, ou cria nova
+        from datetime import datetime
+        mes_atual = datetime.now().strftime("%Y-%m")
+
         try:
-            # Primeiro, verificar se já existe uma meta para este mês
-            existing_meta = supabase.table("metas_mensais").select("*").eq("user_id", uid).eq("mes", mes).execute()
-            
+            # Buscar meta mais recente do usuário (independente do mês)
+            existing_meta = supabase.table("metas_mensais").select("*").eq("user_id", uid).order("mes", desc=True).limit(1).execute()
+
             if existing_meta.data:
-                # Atualizar meta existente
+                # Atualizar meta existente (mais recente)
+                meta_id = existing_meta.data[0].get("id")
                 supabase.table("metas_mensais").update({
-                    "meta_receita": total_salvo
-                }).eq("user_id", uid).eq("mes", mes).execute()
+                    "meta_receita": total_salvo,
+                    "mes": mes_atual  # Atualizar mês para referência
+                }).eq("id", meta_id).execute()
+                current_app.logger.info(f"Meta existente atualizada: R$ {total_salvo} (ID: {meta_id})")
             else:
                 # Inserir nova meta
                 supabase.table("metas_mensais").insert({
                     "user_id": uid,
-                    "mes": mes,
+                    "mes": mes_atual,
                     "meta_receita": total_salvo
                 }).execute()
-                
-            current_app.logger.info(f"Meta total salva na tabela metas_mensais: R$ {total_salvo}")
-            
+                current_app.logger.info(f"Nova meta criada: R$ {total_salvo}")
+
         except Exception as e:
-            current_app.logger.warning(f"Erro ao salvar meta total em metas_mensais: {e}")
+            current_app.logger.warning(f"Erro ao atualizar metas_mensais: {e}")
             # Não falhar o processo principal por causa disso
-        
+
+        # ✅ INVALIDAR CACHE DO DASHBOARD para refletir a nova meta
+        try:
+            invalidate_user_cache('dashboard_data')
+            invalidate_user_cache('dashboard_metrics')
+            current_app.logger.info("Cache do dashboard invalidado após salvar metas")
+        except Exception as e:
+            current_app.logger.warning(f"Erro ao invalidar cache do dashboard: {e}")
+
         flash(f"Metas salvas com sucesso! Total: R$ {total_salvo:,.2f}", "success")
-        
+
     except Exception as e:
         current_app.logger.exception("Erro ao salvar metas por classe")
         flash("Erro ao salvar metas. Tente novamente.", "error")
-    
+
     return redirect(url_for("alocacoes.metas_escritorio"))

@@ -1054,6 +1054,11 @@
                     <span x-show="sidebarOpen" class="transition-opacity duration-200">Insights</span>
                 </a>
 
+                <a href="/clientes/asset-allocation" class="nav-item flex items-center gap-3 px-4 py-3 ml-6 rounded-xl text-gray-600 hover:bg-gray-50 text-sm {% if request.path.startswith('/clientes/asset-allocation') %}active{% endif %}">
+                    <div class="w-4 h-4 flex-shrink-0">📊</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200">Asset Allocation</span>
+                </a>
+
                 <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">
                     <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Gestão</p>
                 </div>
@@ -1093,6 +1098,25 @@
                     <div x-show="sidebarOpen" class="ml-auto">
                         <div class="w-2 h-2 bg-orange-400 rounded-full notification-badge"></div>
                     </div>
+                </a>
+
+                <a href="/diversificador" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 {% if request.path.startswith('/diversificador') %}active{% endif %}">
+                    <div class="w-5 h-5 flex-shrink-0">📊</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Diversificador</span>
+                </a>
+
+                <a href="/custodia-rf" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 {% if request.path.startswith('/custodia-rf') %}active{% endif %}">
+                    <div class="w-5 h-5 flex-shrink-0">💰</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Custódia RF</span>
+                </a>
+
+                <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Suporte</p>
+                </div>
+
+                <a href="/ajuda" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-50 {% if request.path.startswith('/ajuda') %}active{% endif %}">
+                    <div class="w-5 h-5 flex-shrink-0">🆘</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200 font-medium">Ajuda</span>
                 </a>
 
                 {% if session.get('user', {}).get('email', '').lower() == 'renan.godinho@svninvest.com.br' %}

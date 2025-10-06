@@ -1462,3 +1462,537 @@ def insights():
         current_app.logger.exception("Falha ao gerar insights")
         flash("Falha ao gerar insights.", "warning")
         return render_template('clientes/insights.html', insights=[])
+
+
+@clientes_bp.route('/asset-allocation')
+@login_required
+def asset_allocation():
+    """Tela Asset Allocation: visualização da distribuição de ativos por cliente"""
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return render_template('clientes/asset_allocation.html',
+                             clientes=[],
+                             cliente_selecionado=None,
+                             por_produto=[],
+                             por_sub_produto=[],
+                             por_ativo=[],
+                             por_emissor=[],
+                             credito_privado_vencimentos=[],
+                             credito_privado_emissores=[],
+                             exposicao_rf={})
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida: não foi possível identificar o usuário.", "error")
+        return render_template('clientes/asset_allocation.html',
+                             clientes=[],
+                             cliente_selecionado=None,
+                             por_produto=[],
+                             por_sub_produto=[],
+                             por_ativo=[],
+                             por_emissor=[],
+                             credito_privado_vencimentos=[],
+                             credito_privado_emissores=[],
+                             exposicao_rf={})
+
+    try:
+        # Buscar lista de clientes (códigos únicos do diversificador)
+        res_clientes = supabase.table("diversificador")\
+            .select("cliente")\
+            .eq("user_id", uid)\
+            .execute()
+
+        # Extrair códigos únicos de clientes
+        codigos_clientes = list(set(item['cliente'] for item in (res_clientes.data or []) if item.get('cliente')))
+        codigos_clientes.sort()
+
+        # Buscar nomes dos clientes da tabela clientes
+        clientes_com_nome = []
+        res_nomes = supabase.table("clientes")\
+            .select("codigo_xp, codigo_mb, nome")\
+            .eq("user_id", uid)\
+            .execute()
+
+        # Criar mapeamento código -> nome
+        codigo_para_nome = {}
+        for cliente in (res_nomes.data or []):
+            codigo_xp = (cliente.get('codigo_xp') or '').strip()
+            codigo_mb = (cliente.get('codigo_mb') or '').strip()
+            nome = cliente.get('nome', '')
+            if codigo_xp:
+                codigo_para_nome[codigo_xp] = nome
+            if codigo_mb:
+                codigo_para_nome[codigo_mb] = nome
+
+        # Criar lista de clientes com nome para o dropdown (apenas os encontrados na tabela clientes)
+        for codigo in codigos_clientes:
+            if codigo in codigo_para_nome:
+                clientes_com_nome.append({
+                    'codigo': codigo,
+                    'nome': codigo_para_nome[codigo]
+                })
+
+        # Ordenar por nome
+        clientes_com_nome.sort(key=lambda x: x['nome'].upper())
+
+        # Cliente selecionado (via query param)
+        cliente_selecionado = request.args.get('cliente')
+        cliente_selecionado_nome = None
+
+        # Dados de posição do cliente
+        por_produto = []
+        por_sub_produto = []
+        por_ativo = []
+        por_emissor = []
+        exposicao_por_tipo = {}
+        credito_privado_vencimentos = []
+        credito_privado_emissores = []
+        exposicao_rf = {}
+
+        if cliente_selecionado:
+            # Buscar o nome do cliente selecionado
+            cliente_selecionado_nome = codigo_para_nome.get(cliente_selecionado, f'Cliente {cliente_selecionado}')
+            # Buscar todas as posições do cliente selecionado
+            res_posicoes = supabase.table("diversificador")\
+                .select("*")\
+                .eq("user_id", uid)\
+                .eq("cliente", cliente_selecionado)\
+                .execute()
+
+            posicoes = res_posicoes.data or []
+
+            # Agrupar por Produto
+            agrupamento_produto = {}
+            for pos in posicoes:
+                produto = pos.get('produto', 'Não Informado')
+                net = _to_float(pos.get('net', 0))
+                if produto not in agrupamento_produto:
+                    agrupamento_produto[produto] = 0.0
+                agrupamento_produto[produto] += net
+
+            por_produto = [{'categoria': k, 'valor': v} for k, v in agrupamento_produto.items()]
+            por_produto.sort(key=lambda x: x['valor'], reverse=True)
+
+            # Agrupar por Sub Produto
+            agrupamento_sub_produto = {}
+            for pos in posicoes:
+                sub_produto = pos.get('sub_produto', 'Não Informado')
+                net = _to_float(pos.get('net', 0))
+                if sub_produto not in agrupamento_sub_produto:
+                    agrupamento_sub_produto[sub_produto] = 0.0
+                agrupamento_sub_produto[sub_produto] += net
+
+            por_sub_produto = [{'categoria': k, 'valor': v} for k, v in agrupamento_sub_produto.items()]
+            por_sub_produto.sort(key=lambda x: x['valor'], reverse=True)
+
+            # Agrupar por Ativo (top 20)
+            agrupamento_ativo = {}
+            for pos in posicoes:
+                ativo = pos.get('ativo', 'Não Informado')
+                net = _to_float(pos.get('net', 0))
+                if ativo not in agrupamento_ativo:
+                    agrupamento_ativo[ativo] = 0.0
+                agrupamento_ativo[ativo] += net
+
+            por_ativo = [{'categoria': k, 'valor': v} for k, v in agrupamento_ativo.items()]
+            por_ativo.sort(key=lambda x: x['valor'], reverse=True)
+            por_ativo = por_ativo[:20]  # Top 20 ativos
+
+            # Agrupar por Emissor (top 20)
+            agrupamento_emissor = {}
+            for pos in posicoes:
+                emissor = pos.get('emissor', 'Não Informado')
+                net = _to_float(pos.get('net', 0))
+                if emissor not in agrupamento_emissor:
+                    agrupamento_emissor[emissor] = 0.0
+                agrupamento_emissor[emissor] += net
+
+            por_emissor = [{'categoria': k, 'valor': v} for k, v in agrupamento_emissor.items()]
+            por_emissor.sort(key=lambda x: x['valor'], reverse=True)
+            por_emissor = por_emissor[:20]  # Top 20 emissores
+
+            # === CLASSIFICAÇÃO POR TIPO DE ATIVO ===
+            # O sub_produto já vem com a categoria (ex: "Emissão Bancária", "Título Público", "Crédito Privado")
+            # Vamos buscar também o campo "produto" para ter detalhes (CDB, LCI, etc)
+
+            # Inicializar contadores
+            total_emissao_bancaria = 0.0
+            total_credito_privado = 0.0
+            total_titulo_publico = 0.0
+            total_geral = 0.0
+
+            # Detalhes por tipo dentro de cada categoria
+            detalhes_bancaria = {}  # produto -> valor
+            detalhes_credito = {}
+            detalhes_publico = {}
+
+            current_app.logger.info(f"ASSET_ALLOCATION: Processando {len(posicoes)} posições para cliente {cliente_selecionado}")
+
+            # Primeiro, vamos buscar as posições de RF da tabela custodia_rf para este cliente
+            try:
+                res_custodia_rf_tipos = supabase.table("custodia_rf")\
+                    .select("cod_conta, nome_papel, custodia")\
+                    .eq("user_id", uid)\
+                    .eq("cod_conta", str(cliente_selecionado))\
+                    .execute()
+
+                custodia_rf_dict = {}  # nome_papel -> custodia
+                if res_custodia_rf_tipos.data:
+                    for item in res_custodia_rf_tipos.data:
+                        nome_papel = (item.get('nome_papel', '') or '').strip().upper()
+                        custodia = _to_float(item.get('custodia', 0))
+                        custodia_rf_dict[nome_papel] = custodia_rf_dict.get(nome_papel, 0.0) + custodia
+
+                    current_app.logger.info(f"ASSET_ALLOCATION: Encontrados {len(custodia_rf_dict)} ativos RF únicos na custodia_rf")
+            except Exception as e:
+                current_app.logger.warning(f"ASSET_ALLOCATION: Erro ao buscar custodia_rf para classificação de tipos: {e}")
+                custodia_rf_dict = {}
+
+            # Agora classificar usando nome_papel
+            for nome_papel, valor in custodia_rf_dict.items():
+                total_geral += valor
+
+                # Tesouro Direto: nome_papel vazio (NULL)
+                if not nome_papel:
+                    total_titulo_publico += valor
+                    detalhes_publico['Tesouro Direto'] = detalhes_publico.get('Tesouro Direto', 0.0) + valor
+                    current_app.logger.debug(f"ASSET_ALLOCATION: Classificado como Título Público (Tesouro Direto): nome_papel vazio -> R$ {valor:,.2f}")
+
+                # Verificar o prefixo do nome_papel
+                # Emissão Bancária: CDB, LCD, LCI, LCA, LF
+                elif nome_papel.startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                    total_emissao_bancaria += valor
+                    # Extrair o tipo (primeiras 3 letras geralmente)
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else nome_papel[:3]
+                    detalhes_bancaria[tipo_detalhe] = detalhes_bancaria.get(tipo_detalhe, 0.0) + valor
+                    current_app.logger.debug(f"ASSET_ALLOCATION: Classificado como Emissão Bancária: {nome_papel} -> {tipo_detalhe}")
+
+                # Crédito Privado: DEB, CDCA, CRA, CRI, FIDC
+                elif nome_papel.startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                    total_credito_privado += valor
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else nome_papel[:4] if nome_papel.startswith('CDCA') or nome_papel.startswith('FIDC') else nome_papel[:3]
+                    detalhes_credito[tipo_detalhe] = detalhes_credito.get(tipo_detalhe, 0.0) + valor
+                    current_app.logger.debug(f"ASSET_ALLOCATION: Classificado como Crédito Privado: {nome_papel} -> {tipo_detalhe}")
+
+                # Título Público: NTN-B, LFT, LTN, NTN-F, NTN-C
+                elif nome_papel.startswith(('NTN-B', 'LFT', 'LTN', 'NTN-F', 'NTN-C')):
+                    total_titulo_publico += valor
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else ('NTN-B' if nome_papel.startswith('NTN-B') else 'NTN-F' if nome_papel.startswith('NTN-F') else 'NTN-C' if nome_papel.startswith('NTN-C') else nome_papel[:3])
+                    detalhes_publico[tipo_detalhe] = detalhes_publico.get(tipo_detalhe, 0.0) + valor
+                    current_app.logger.debug(f"ASSET_ALLOCATION: Classificado como Título Público: {nome_papel} -> {tipo_detalhe}")
+
+                else:
+                    current_app.logger.warning(f"ASSET_ALLOCATION: NÃO CLASSIFICADO: '{nome_papel}'")
+
+            current_app.logger.info(f"ASSET_ALLOCATION: Totais - Bancária: R$ {total_emissao_bancaria:,.2f} | Crédito: R$ {total_credito_privado:,.2f} | Público: R$ {total_titulo_publico:,.2f} | Total Geral: R$ {total_geral:,.2f}")
+            current_app.logger.info(f"ASSET_ALLOCATION: Detalhes Bancária: {detalhes_bancaria}")
+            current_app.logger.info(f"ASSET_ALLOCATION: Detalhes Crédito: {detalhes_credito}")
+            current_app.logger.info(f"ASSET_ALLOCATION: Detalhes Público: {detalhes_publico}")
+
+            # === ANÁLISE DE VENCIMENTOS E EMISSORES (TODOS OS ATIVOS RF) ===
+            credito_privado_vencimentos = []
+            credito_privado_emissores = []
+
+            # Buscar dados de toda a tabela custodia_rf para vencimentos e emissores
+            try:
+                res_cp_rf = supabase.table("custodia_rf")\
+                    .select("*")\
+                    .eq("user_id", uid)\
+                    .eq("cod_conta", str(cliente_selecionado))\
+                    .execute()
+
+                if res_cp_rf.data:
+                    current_app.logger.info(f"ASSET_ALLOCATION: Encontradas {len(res_cp_rf.data)} posições na custodia_rf para análise de vencimentos")
+
+                    # === 1. ANÁLISE POR VENCIMENTO (TODOS OS ATIVOS RF - USAR COLUNA VENCIMENTO) ===
+                    vencimentos_por_ano = {}  # {2025: {'total': 0.0, 'count': 0}, ...}
+                    total_com_vencimento = 0.0
+
+                    for pos in res_cp_rf.data:
+                        custodia = _to_float(pos.get('custodia', 0))
+                        vencimento = pos.get('vencimento')  # É uma data no formato 'YYYY-MM-DD' ou objeto date
+
+                        if vencimento:
+                            try:
+                                # Extrair o ano da data de vencimento
+                                # Se for string no formato 'YYYY-MM-DD', pegar os primeiros 4 caracteres
+                                # Se for um objeto date, usar .year
+                                if isinstance(vencimento, str):
+                                    # Formato: '2025-12-31' -> pegar '2025'
+                                    ano = int(vencimento[:4])
+                                elif hasattr(vencimento, 'year'):
+                                    # É um objeto date/datetime
+                                    ano = vencimento.year
+                                else:
+                                    # Tentar converter direto para int (fallback)
+                                    ano = int(vencimento)
+
+                                if ano not in vencimentos_por_ano:
+                                    vencimentos_por_ano[ano] = {'total': 0.0, 'count': 0}
+
+                                vencimentos_por_ano[ano]['total'] += custodia
+                                vencimentos_por_ano[ano]['count'] += 1
+                                total_com_vencimento += custodia
+                            except (ValueError, TypeError, IndexError) as e:
+                                current_app.logger.warning(f"ASSET_ALLOCATION: Erro ao extrair ano do vencimento '{vencimento}' (tipo: {type(vencimento).__name__}): {e}")
+
+                    # Preparar lista de vencimentos para o template (ordenado por ano)
+                    for ano in sorted(vencimentos_por_ano.keys()):
+                        dados = vencimentos_por_ano[ano]
+                        credito_privado_vencimentos.append({
+                            'label': str(ano),
+                            'total': dados['total'],
+                            'count': dados['count'],
+                            'percentual_carteira': (dados['total'] / total_com_vencimento * 100) if total_com_vencimento > 0 else 0
+                        })
+
+                    current_app.logger.info(f"ASSET_ALLOCATION: Vencimentos por ano: {credito_privado_vencimentos}")
+                    current_app.logger.info(f"ASSET_ALLOCATION: Total de RF com vencimento informado: R$ {total_com_vencimento:,.2f}")
+
+                    # === 2. ANÁLISE POR EMISSOR (EXTRAIR DO NOME_PAPEL) ===
+                    emissores_agrupados = {}
+
+                    for pos in res_cp_rf.data:
+                        nome_papel = (pos.get('nome_papel', '') or '').strip()
+                        custodia = _to_float(pos.get('custodia', 0))
+
+                        # Extrair emissor do nome_papel
+                        emissor = 'Não Informado'
+
+                        # Se nome_papel estiver vazio, considerar como Tesouro Nacional
+                        if not nome_papel:
+                            emissor = 'Tesouro Nacional'
+                        # Verificar se é título público
+                        elif any(titulo in nome_papel for titulo in ['NTN-B', 'LFT', 'NTN-C', 'LTN', 'NTN-F']):
+                            emissor = 'Tesouro Nacional'
+                        else:
+                            # Extrair emissor: o que vem após o primeiro espaço e antes do -
+                            # Exemplo: "CRA JBS - SET/2032" -> "JBS"
+                            partes = nome_papel.split()
+                            if len(partes) >= 2:
+                                # Pegar tudo após a primeira palavra até encontrar um -
+                                resto = ' '.join(partes[1:])
+                                if ' - ' in resto:
+                                    emissor = resto.split(' - ')[0].strip()
+                                elif '-' in resto:
+                                    emissor = resto.split('-')[0].strip()
+                                else:
+                                    emissor = partes[1].strip()
+
+                        if emissor not in emissores_agrupados:
+                            emissores_agrupados[emissor] = {'total': 0.0, 'count': 0}
+
+                        emissores_agrupados[emissor]['total'] += custodia
+                        emissores_agrupados[emissor]['count'] += 1
+
+                    # Preparar lista de emissores para o template (top 10)
+                    for emissor, dados in emissores_agrupados.items():
+                        credito_privado_emissores.append({
+                            'nome': emissor,
+                            'total': dados['total'],
+                            'count': dados['count'],
+                            'percentual_carteira': (dados['total'] / total_geral * 100) if total_geral > 0 else 0,
+                            'acima_fgc': dados['total'] > 250000  # Flag para destacar emissores acima de 250k
+                        })
+
+                    # Ordenar por percentual decrescente e pegar top 10
+                    credito_privado_emissores.sort(key=lambda x: x['percentual_carteira'], reverse=True)
+                    credito_privado_emissores = credito_privado_emissores[:10]
+
+                    current_app.logger.info(f"ASSET_ALLOCATION: Emissores (top 10): {credito_privado_emissores}")
+
+                else:
+                    current_app.logger.warning(f"ASSET_ALLOCATION: Nenhuma posição encontrada na custodia_rf para cliente {cliente_selecionado}")
+
+            except Exception as e:
+                current_app.logger.warning(f"ASSET_ALLOCATION: Erro ao buscar vencimentos/emissores da custodia_rf: {e}")
+
+            # Calcular total de Renda Fixa (soma das 3 categorias)
+            total_renda_fixa = total_emissao_bancaria + total_credito_privado + total_titulo_publico
+
+            # Preparar dados para o template
+            exposicao_por_tipo = {
+                'emissao_bancaria': {
+                    'total': total_emissao_bancaria,
+                    'percentual': (total_emissao_bancaria / total_geral * 100) if total_geral > 0 else 0,
+                    'percentual_rf': (total_emissao_bancaria / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                    'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_emissao_bancaria * 100) if total_emissao_bancaria > 0 else 0}
+                                for k, v in sorted(detalhes_bancaria.items(), key=lambda x: x[1], reverse=True)]
+                },
+                'credito_privado': {
+                    'total': total_credito_privado,
+                    'percentual': (total_credito_privado / total_geral * 100) if total_geral > 0 else 0,
+                    'percentual_rf': (total_credito_privado / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                    'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_credito_privado * 100) if total_credito_privado > 0 else 0}
+                                for k, v in sorted(detalhes_credito.items(), key=lambda x: x[1], reverse=True)]
+                },
+                'titulo_publico': {
+                    'total': total_titulo_publico,
+                    'percentual': (total_titulo_publico / total_geral * 100) if total_geral > 0 else 0,
+                    'percentual_rf': (total_titulo_publico / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                    'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_titulo_publico * 100) if total_titulo_publico > 0 else 0}
+                                for k, v in sorted(detalhes_publico.items(), key=lambda x: x[1], reverse=True)]
+                },
+                'total_geral': total_geral,
+                'total_renda_fixa': total_renda_fixa
+            }
+
+            # === EXPOSIÇÃO RENDA FIXA (CUSTODIA_RF) ===
+            # Buscar dados de custódia RF para o cliente selecionado
+            try:
+                # Buscar todos os dados de custódia RF do usuário
+                res_custodia_rf = supabase.table("custodia_rf")\
+                    .select("*")\
+                    .eq("user_id", uid)\
+                    .execute()
+
+                current_app.logger.info(f"ASSET_ALLOCATION RF: Total de registros RF encontrados: {len(res_custodia_rf.data) if res_custodia_rf.data else 0}")
+
+                if res_custodia_rf.data:
+                    # Filtrar posições que pertencem ao cliente selecionado
+                    # O cod_conta na custodia_rf deve corresponder ao codigo_xp ou codigo_mb do cliente
+
+                    # DEBUG: Verificar tipos e valores
+                    cod_conta_exemplo = res_custodia_rf.data[0].get('cod_conta') if res_custodia_rf.data else None
+                    current_app.logger.info(f"ASSET_ALLOCATION RF DEBUG: cliente_selecionado='{cliente_selecionado}' (tipo: {type(cliente_selecionado).__name__})")
+                    current_app.logger.info(f"ASSET_ALLOCATION RF DEBUG: cod_conta exemplo='{cod_conta_exemplo}' (tipo: {type(cod_conta_exemplo).__name__})")
+
+                    posicoes_rf_cliente = [
+                        pos for pos in res_custodia_rf.data
+                        if str(pos.get('cod_conta')) == str(cliente_selecionado)
+                    ]
+
+                    current_app.logger.info(f"ASSET_ALLOCATION: Encontradas {len(posicoes_rf_cliente)} posições RF para cliente {cliente_selecionado}")
+
+                    # Classificar por indexador
+                    total_pos_fixado = 0.0
+                    total_pre_fixado = 0.0
+                    total_inflacao = 0.0
+                    total_internacional = 0.0
+                    total_rf = 0.0
+
+                    # Acumuladores para taxas ponderadas
+                    taxas_ponderadas = {}  # {indexador: {'total_ponderado': 0.0, 'total_custodia': 0.0}}
+
+                    for pos_rf in posicoes_rf_cliente:
+                        indexador = (pos_rf.get('indexador', '') or '').strip().upper()
+                        custodia = _to_float(pos_rf.get('custodia', 0))
+                        taxa_cliente = _to_float(pos_rf.get('taxa_cliente', 0))
+                        total_rf += custodia
+
+                        current_app.logger.debug(f"ASSET_ALLOCATION RF: indexador='{indexador}' | custodia={custodia} | taxa_cliente={taxa_cliente}")
+
+                        # Classificação segundo as regras:
+                        # Pós-fixado: % CDI, CDI +, LFT, Renda+, Selic
+                        # Inflação: IPCA
+                        # Prefixado: PRE, PRÉ
+                        # Internacional: DOLAR PTAX
+
+                        if indexador in ['% CDI', 'CDI +', 'LFT', 'RENDA+', 'SELIC']:
+                            total_pos_fixado += custodia
+                        elif indexador == 'IPCA':
+                            total_inflacao += custodia
+                        elif indexador in ['PRE', 'PRÉ']:
+                            total_pre_fixado += custodia
+                        elif indexador == 'DOLAR PTAX':
+                            total_internacional += custodia
+
+                        # Calcular taxa ponderada por indexador
+                        # Normalizar indexador para agrupamento
+                        indexador_normalizado = indexador
+                        taxa_percentual_cdi = 0.0
+
+                        # LFT e SELIC = 100% CDI
+                        if indexador in ['LFT', 'SELIC']:
+                            indexador_normalizado = '% CDI'
+                            taxa_percentual_cdi = 100.0
+                        # % CDI já está em percentual
+                        elif indexador == '% CDI':
+                            taxa_percentual_cdi = taxa_cliente
+                        # CDI + precisa ser convertido para % CDI
+                        # Fórmula: (100 + taxa_cdi_plus) / 100 * 100 = 100 + taxa_cdi_plus
+                        elif indexador == 'CDI +':
+                            indexador_normalizado = '% CDI'
+                            taxa_percentual_cdi = 100.0 + taxa_cliente
+                        # RENDA+ também considera 100% CDI
+                        elif indexador == 'RENDA+':
+                            indexador_normalizado = '% CDI'
+                            taxa_percentual_cdi = 100.0
+                        # Para outros indexadores (IPCA, PRE, DOLAR PTAX), usar taxa_cliente diretamente
+                        else:
+                            taxa_percentual_cdi = taxa_cliente
+
+                        # Acumular para cálculo de média ponderada
+                        if indexador_normalizado not in taxas_ponderadas:
+                            taxas_ponderadas[indexador_normalizado] = {'total_ponderado': 0.0, 'total_custodia': 0.0}
+
+                        taxas_ponderadas[indexador_normalizado]['total_ponderado'] += custodia * taxa_percentual_cdi
+                        taxas_ponderadas[indexador_normalizado]['total_custodia'] += custodia
+
+                    current_app.logger.info(f"ASSET_ALLOCATION RF: Totais - Pós: R$ {total_pos_fixado:,.2f} | Pré: R$ {total_pre_fixado:,.2f} | Inflação: R$ {total_inflacao:,.2f} | Internacional: R$ {total_internacional:,.2f} | Total RF: R$ {total_rf:,.2f}")
+
+                    # Calcular taxas médias ponderadas
+                    taxas_medias_ponderadas = {}
+                    for idx, dados in taxas_ponderadas.items():
+                        if dados['total_custodia'] > 0:
+                            taxa_media = dados['total_ponderado'] / dados['total_custodia']
+                            taxas_medias_ponderadas[idx] = taxa_media
+                            current_app.logger.info(f"ASSET_ALLOCATION RF: Taxa média ponderada {idx}: {taxa_media:.2f}%")
+                        else:
+                            taxas_medias_ponderadas[idx] = 0.0
+
+                    if total_rf > 0:
+                        exposicao_rf = {
+                            'pos_fixado': {
+                                'total': total_pos_fixado,
+                                'percentual': (total_pos_fixado / total_rf * 100) if total_rf > 0 else 0,
+                                'taxa_ponderada': taxas_medias_ponderadas.get('% CDI', 0.0)
+                            },
+                            'pre_fixado': {
+                                'total': total_pre_fixado,
+                                'percentual': (total_pre_fixado / total_rf * 100) if total_rf > 0 else 0,
+                                'taxa_ponderada': taxas_medias_ponderadas.get('PRE', 0.0) or taxas_medias_ponderadas.get('PRÉ', 0.0)
+                            },
+                            'inflacao': {
+                                'total': total_inflacao,
+                                'percentual': (total_inflacao / total_rf * 100) if total_rf > 0 else 0,
+                                'taxa_ponderada': taxas_medias_ponderadas.get('IPCA', 0.0)
+                            },
+                            'internacional': {
+                                'total': total_internacional,
+                                'percentual': (total_internacional / total_rf * 100) if total_rf > 0 else 0,
+                                'taxa_ponderada': taxas_medias_ponderadas.get('DOLAR PTAX', 0.0)
+                            },
+                            'total_rf': total_rf
+                    }
+
+            except Exception as e:
+                current_app.logger.warning(f"Erro ao buscar dados de custódia RF: {e}")
+
+        return render_template('clientes/asset_allocation.html',
+                             clientes=clientes_com_nome,
+                             cliente_selecionado=cliente_selecionado,
+                             cliente_selecionado_nome=cliente_selecionado_nome,
+                             por_produto=por_produto,
+                             por_sub_produto=por_sub_produto,
+                             por_ativo=por_ativo,
+                             por_emissor=por_emissor,
+                             exposicao_por_tipo=exposicao_por_tipo,
+                             credito_privado_vencimentos=credito_privado_vencimentos if cliente_selecionado else [],
+                             credito_privado_emissores=credito_privado_emissores if cliente_selecionado else [],
+                             exposicao_rf=exposicao_rf)
+
+    except Exception:
+        current_app.logger.exception("Falha ao carregar Asset Allocation")
+        flash("Falha ao carregar dados de Asset Allocation.", "warning")
+        return render_template('clientes/asset_allocation.html',
+                             clientes=[],
+                             cliente_selecionado=None,
+                             por_produto=[],
+                             por_sub_produto=[],
+                             por_ativo=[],
+                             por_emissor=[],
+                             credito_privado_vencimentos=[],
+                             credito_privado_emissores=[],
+                             exposicao_rf={})
