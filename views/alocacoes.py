@@ -129,6 +129,31 @@ def _uid():
     from security_middleware import get_current_user_id
     return get_current_user_id()
 
+def _limpar_alocacoes_antigas_automatico():
+    """
+    Limpa automaticamente alocações efetivadas de meses anteriores.
+    Executa silenciosamente (sem confirmação) ao carregar a tela.
+    """
+    from datetime import datetime
+    uid = _uid()
+    supabase = _get_supabase()
+
+    if not supabase or not uid:
+        return
+
+    try:
+        # Data do primeiro dia do mês atual
+        mes_atual = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        # Buscar e excluir alocações efetivadas criadas antes do mês atual
+        resp = supabase.table("alocacoes").delete().eq("user_id", uid).eq("efetivada", True).lt("created_at", mes_atual).execute()
+
+        if resp.data:
+            current_app.logger.info(f"Limpeza automática: {len(resp.data)} alocações antigas excluídas para user_id={uid}")
+
+    except Exception as e:
+        current_app.logger.warning(f"Erro na limpeza automática de alocações antigas: {e}")
+
 def _calcular_receitas_dashboard(cliente_id_filter=None):
     """
     Calcula receitas e totais com cache para melhorar performance.
@@ -383,6 +408,9 @@ def _get_alocacao_by_id(aloc_id: str):
 @alocacoes_bp.route("/")
 @login_required
 def index():
+    # Limpar automaticamente alocações efetivadas de meses anteriores
+    _limpar_alocacoes_antigas_automatico()
+
     cliente_id_filter = (request.args.get("cliente_id") or "").strip() or None
 
     # Usar função com cache para buscar e calcular receitas
@@ -774,6 +802,38 @@ def produtos():
             itens = []
 
     return render_template("alocacoes/produtos.html", produtos=itens)
+
+@alocacoes_bp.route("/produtos/json")
+@login_required
+def produtos_json():
+    """Retorna lista de produtos em formato JSON para uso em dropdowns"""
+    from flask import jsonify
+
+    supabase = _get_supabase()
+    uid = _uid()
+
+    if not supabase or not uid:
+        return jsonify([])
+
+    try:
+        res = supabase.table("produtos")\
+            .select("id, nome, classe")\
+            .eq("user_id", uid)\
+            .order("nome")\
+            .execute()
+
+        produtos = []
+        for p in (res.data or []):
+            produtos.append({
+                "id": p.get("id"),
+                "nome": p.get("nome", ""),
+                "classe": p.get("classe", "")
+            })
+
+        return jsonify(produtos)
+    except Exception:
+        current_app.logger.exception("Erro ao buscar produtos JSON")
+        return jsonify([])
 
 
 @alocacoes_bp.route("/produtos/novo", methods=["GET", "POST"])
@@ -1616,6 +1676,51 @@ def metas_escritorio():
         total_metas=total_metas,
         mes_atual=mes_atual
     )
+
+
+@alocacoes_bp.route("/limpar-alocacoes-antigas", methods=["POST"])
+@login_required
+def limpar_alocacoes_antigas():
+    """Endpoint manual para limpar alocações efetivadas de meses anteriores"""
+    from datetime import datetime
+    from flask import jsonify
+
+    uid = _uid()
+    supabase = _get_supabase()
+
+    if not supabase or not uid:
+        flash("Sistema indisponível ou sessão inválida.", "error")
+        return redirect(url_for("alocacoes.index"))
+
+    try:
+        # Data do primeiro dia do mês atual
+        mes_atual = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        # Buscar alocações efetivadas criadas antes do mês atual
+        resp_busca = supabase.table("alocacoes").select("id, created_at, valor").eq("user_id", uid).eq("efetivada", True).lt("created_at", mes_atual).execute()
+
+        alocacoes_antigas = resp_busca.data or []
+
+        if not alocacoes_antigas:
+            flash("Nenhuma alocação antiga encontrada.", "info")
+            return redirect(url_for("alocacoes.index"))
+
+        # Excluir as alocações
+        total_valor = sum(float(a.get("valor", 0)) for a in alocacoes_antigas)
+
+        for aloc in alocacoes_antigas:
+            supabase.table("alocacoes").delete().eq("id", aloc.get("id")).eq("user_id", uid).execute()
+
+        # Invalidar cache
+        _invalidar_cache_relacionado()
+
+        flash(f"{len(alocacoes_antigas)} alocações antigas excluídas (R$ {total_valor:,.2f})", "success")
+
+    except Exception as e:
+        current_app.logger.exception("Erro ao limpar alocações antigas")
+        flash("Erro ao limpar alocações antigas.", "error")
+
+    return redirect(url_for("alocacoes.index"))
 
 
 @alocacoes_bp.route("/metas-escritorio/salvar", methods=["POST"])

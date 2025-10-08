@@ -33,6 +33,86 @@ def _get_supabase():
 
 clientes_bp = Blueprint('clientes', __name__, url_prefix='/clientes')
 
+# ============ ENDPOINT PARA ALOCAR DO MAPA DE LIQUIDEZ ============
+@clientes_bp.route('/criar-alocacao-liquidez', methods=['POST'])
+@login_required
+def criar_alocacao_liquidez():
+    """Cria uma alocação a partir do Mapa de Liquidez"""
+    from flask import jsonify
+
+    supabase = _get_supabase()
+    uid = _uid()
+
+    if not supabase or not uid:
+        return jsonify({"success": False, "message": "Sistema indisponível ou sessão inválida"}), 400
+
+    try:
+        # Receber dados do formulário
+        cliente_codigo = (request.form.get("cliente_codigo") or "").strip()
+        produto_id = (request.form.get("produto_id") or "").strip()
+        valor = _to_float(request.form.get("valor"))
+
+        if not cliente_codigo or not produto_id:
+            return jsonify({"success": False, "message": "Cliente e produto são obrigatórios"}), 400
+
+        if valor <= 0:
+            return jsonify({"success": False, "message": "Valor deve ser maior que zero"}), 400
+
+        # Buscar o cliente_id a partir do código
+        res_cliente = supabase.table("clientes")\
+            .select("id")\
+            .eq("user_id", uid)\
+            .or_(f"codigo_xp.eq.{cliente_codigo},codigo_mb.eq.{cliente_codigo}")\
+            .limit(1)\
+            .execute()
+
+        if not res_cliente.data:
+            return jsonify({"success": False, "message": "Cliente não encontrado"}), 404
+
+        cliente_id = res_cliente.data[0]["id"]
+
+        # Verificar se já existe alocação para este cliente + produto
+        existing_check = supabase.table("alocacoes")\
+            .select("id, valor")\
+            .eq("cliente_id", cliente_id)\
+            .eq("produto_id", produto_id)\
+            .eq("user_id", uid)\
+            .execute()
+
+        if existing_check.data:
+            # Já existe: somar valor
+            existing_id = existing_check.data[0]["id"]
+            existing_valor = _to_float(existing_check.data[0].get("valor", 0))
+            novo_valor = existing_valor + valor
+
+            supabase.table("alocacoes").update({
+                "valor": novo_valor
+            }).eq("id", existing_id).eq("user_id", uid).execute()
+
+            message = f"Valor adicionado à alocação existente! Novo total: R$ {novo_valor:,.2f}"
+        else:
+            # Criar nova alocação
+            supabase.table("alocacoes").insert({
+                "cliente_id": cliente_id,
+                "produto_id": produto_id,
+                "valor": valor,
+                "percentual": 0,
+                "efetivada": False,
+                "user_id": uid,
+            }).execute()
+
+            message = "Alocação criada com sucesso!"
+
+        # Invalidar caches
+        from cache_manager import invalidate_all_user_cache
+        invalidate_all_user_cache()
+
+        return jsonify({"success": True, "message": message})
+
+    except Exception as e:
+        current_app.logger.exception("Erro ao criar alocação do Mapa de Liquidez")
+        return jsonify({"success": False, "message": f"Erro ao criar alocação: {str(e)}"}), 500
+
 # ----------------- Helpers -----------------
 # ✅ inclui ASSET como modelo permitido
 ALLOWED_MODELOS = {"TRADICIONAL", "ASSET", "FEE_BASED", "FEE_BASED_SEM_RV"}
@@ -1536,6 +1616,16 @@ def asset_allocation():
         # Ordenar por nome
         clientes_com_nome.sort(key=lambda x: x['nome'].upper())
 
+        # Calcular letras iniciais disponíveis
+        letras_disponiveis = set()
+        for cliente in clientes_com_nome:
+            nome = cliente.get('nome', '')
+            if nome:
+                primeira_letra = nome[0].upper()
+                if primeira_letra.isalpha():
+                    letras_disponiveis.add(primeira_letra)
+        letras_disponiveis = sorted(letras_disponiveis)
+
         # Cliente selecionado (via query param)
         cliente_selecionado = request.args.get('cliente')
         cliente_selecionado_nome = None
@@ -1549,6 +1639,7 @@ def asset_allocation():
         credito_privado_vencimentos = []
         credito_privado_emissores = []
         exposicao_rf = {}
+        mapa_liquidez = []
 
         if cliente_selecionado:
             # Buscar o nome do cliente selecionado
@@ -1757,16 +1848,26 @@ def asset_allocation():
                         nome_papel = (pos.get('nome_papel', '') or '').strip()
                         custodia = _to_float(pos.get('custodia', 0))
 
-                        # Extrair emissor do nome_papel
+                        # Extrair emissor do nome_papel e identificar tipo de ativo
                         emissor = 'Não Informado'
+                        tipo_ativo = 'outros'  # Pode ser 'emissao_bancaria', 'credito_privado', 'titulo_publico', ou 'outros'
 
                         # Se nome_papel estiver vazio, considerar como Tesouro Nacional
                         if not nome_papel:
                             emissor = 'Tesouro Nacional'
+                            tipo_ativo = 'titulo_publico'
                         # Verificar se é título público
                         elif any(titulo in nome_papel for titulo in ['NTN-B', 'LFT', 'NTN-C', 'LTN', 'NTN-F']):
                             emissor = 'Tesouro Nacional'
+                            tipo_ativo = 'titulo_publico'
                         else:
+                            # Identificar tipo de ativo baseado no prefixo
+                            nome_upper = nome_papel.upper()
+                            if nome_upper.startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                                tipo_ativo = 'emissao_bancaria'
+                            elif nome_upper.startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                                tipo_ativo = 'credito_privado'
+
                             # Extrair emissor: o que vem após o primeiro espaço e antes do -
                             # Exemplo: "CRA JBS - SET/2032" -> "JBS"
                             partes = nome_papel.split()
@@ -1781,19 +1882,23 @@ def asset_allocation():
                                     emissor = partes[1].strip()
 
                         if emissor not in emissores_agrupados:
-                            emissores_agrupados[emissor] = {'total': 0.0, 'count': 0}
+                            emissores_agrupados[emissor] = {'total': 0.0, 'count': 0, 'tipo_ativo': tipo_ativo}
 
                         emissores_agrupados[emissor]['total'] += custodia
                         emissores_agrupados[emissor]['count'] += 1
 
                     # Preparar lista de emissores para o template (top 10)
                     for emissor, dados in emissores_agrupados.items():
+                        # Só destacar acima do FGC se for Emissão Bancária
+                        acima_fgc = (dados['tipo_ativo'] == 'emissao_bancaria' and dados['total'] > 250000)
+
                         credito_privado_emissores.append({
                             'nome': emissor,
                             'total': dados['total'],
                             'count': dados['count'],
                             'percentual_carteira': (dados['total'] / total_geral * 100) if total_geral > 0 else 0,
-                            'acima_fgc': dados['total'] > 250000  # Flag para destacar emissores acima de 250k
+                            'acima_fgc': acima_fgc,  # Flag para destacar emissões bancárias acima de 250k
+                            'tipo_ativo': dados['tipo_ativo']
                         })
 
                     # Ordenar por percentual decrescente e pegar top 10
@@ -1970,8 +2075,100 @@ def asset_allocation():
             except Exception as e:
                 current_app.logger.warning(f"Erro ao buscar dados de custódia RF: {e}")
 
+            # === MAPA DE LIQUIDEZ ===
+            try:
+                # Buscar todos os CNPJs de fundos do cliente no diversificador
+                res_fundos_cliente = supabase.table("diversificador")\
+                    .select("cnpj_fundo, net")\
+                    .eq("user_id", uid)\
+                    .eq("cliente", cliente_selecionado)\
+                    .not_.is_("cnpj_fundo", "null")\
+                    .execute()
+
+                if res_fundos_cliente.data:
+                    # Agrupar por CNPJ e somar valores
+                    fundos_agrupados = {}
+                    for item in res_fundos_cliente.data:
+                        cnpj_str = (item.get('cnpj_fundo') or '').strip()
+                        net = _to_float(item.get('net', 0))
+                        if cnpj_str:
+                            # Converter CNPJ para inteiro para match com a tabela mapa_liquidez
+                            try:
+                                cnpj_int = int(cnpj_str.replace('.', '').replace('/', '').replace('-', ''))
+                                fundos_agrupados[cnpj_int] = fundos_agrupados.get(cnpj_int, 0.0) + net
+                            except (ValueError, AttributeError):
+                                current_app.logger.warning(f"MAPA_LIQUIDEZ: CNPJ inválido no diversificador: {cnpj_str}")
+
+                    current_app.logger.info(f"MAPA_LIQUIDEZ: Cliente possui {len(fundos_agrupados)} fundos únicos (CNPJs: {list(fundos_agrupados.keys())})")
+
+                    # Buscar informações dos fundos na tabela mapa_liquidez
+                    cnpjs_list = list(fundos_agrupados.keys())
+                    if cnpjs_list:
+                        res_mapa = supabase.table("mapa_liquidez")\
+                            .select("*")\
+                            .in_("CNPJ_FUNDO", cnpjs_list)\
+                            .execute()
+
+                        current_app.logger.info(f"MAPA_LIQUIDEZ: Query retornou {len(res_mapa.data) if res_mapa.data else 0} fundos")
+
+                        if res_mapa.data:
+                            for fundo in res_mapa.data:
+                                cnpj = fundo.get('CNPJ_FUNDO', '')
+                                mapa_liquidez.append({
+                                    'nome_fundo': fundo.get('NOME_FUNDO', 'N/A'),
+                                    'cnpj_fundo': str(cnpj),  # Converter para string para exibição
+                                    'classificacao_cvm': fundo.get('CLASSIFICAÇÃO_CVM', 'N/A'),
+                                    'resgate_total': fundo.get('RESGATE TOTAL', 0),
+                                    'valor': fundos_agrupados.get(cnpj, 0.0)
+                                })
+
+                            current_app.logger.info(f"MAPA_LIQUIDEZ: Encontrados {len(mapa_liquidez)} fundos no mapa de liquidez")
+                        else:
+                            current_app.logger.warning(f"MAPA_LIQUIDEZ: Nenhum fundo encontrado na tabela mapa_liquidez para os CNPJs do cliente")
+                else:
+                    current_app.logger.info(f"MAPA_LIQUIDEZ: Cliente não possui fundos com CNPJ informado")
+
+                # Adicionar valores de LFT da tabela custodia_rf
+                try:
+                    res_lft = supabase.table("custodia_rf")\
+                        .select("nome_papel, custodia")\
+                        .eq("user_id", uid)\
+                        .eq("cod_conta", str(cliente_selecionado))\
+                        .execute()
+
+                    if res_lft.data:
+                        total_lft = 0.0
+                        for item in res_lft.data:
+                            nome_papel = (item.get('nome_papel', '') or '').strip().upper()
+                            if nome_papel.startswith('LFT'):
+                                custodia = _to_float(item.get('custodia', 0))
+                                total_lft += custodia
+
+                        if total_lft > 0:
+                            # Adicionar LFT ao mapa de liquidez
+                            mapa_liquidez.append({
+                                'nome_fundo': 'Tesouro Selic (LFT)',
+                                'cnpj_fundo': 'N/A',
+                                'classificacao_cvm': 'Renda Fixa',
+                                'resgate_total': 0,  # D+0 (liquidez imediata)
+                                'valor': total_lft
+                            })
+                            current_app.logger.info(f"MAPA_LIQUIDEZ: Adicionado LFT com total de R$ {total_lft:.2f}")
+
+                except Exception as e:
+                    current_app.logger.warning(f"MAPA_LIQUIDEZ: Erro ao buscar LFT da custodia_rf: {e}")
+
+                # Ordenar por valor decrescente
+                mapa_liquidez.sort(key=lambda x: x['valor'], reverse=True)
+
+            except Exception as e:
+                current_app.logger.warning(f"MAPA_LIQUIDEZ: Erro ao buscar mapa de liquidez: {e}")
+                import traceback
+                current_app.logger.warning(f"MAPA_LIQUIDEZ: Traceback: {traceback.format_exc()}")
+
         return render_template('clientes/asset_allocation.html',
                              clientes=clientes_com_nome,
+                             letras_disponiveis=letras_disponiveis,
                              cliente_selecionado=cliente_selecionado,
                              cliente_selecionado_nome=cliente_selecionado_nome,
                              por_produto=por_produto,
@@ -1981,7 +2178,8 @@ def asset_allocation():
                              exposicao_por_tipo=exposicao_por_tipo,
                              credito_privado_vencimentos=credito_privado_vencimentos if cliente_selecionado else [],
                              credito_privado_emissores=credito_privado_emissores if cliente_selecionado else [],
-                             exposicao_rf=exposicao_rf)
+                             exposicao_rf=exposicao_rf,
+                             mapa_liquidez=mapa_liquidez)
 
     except Exception:
         current_app.logger.exception("Falha ao carregar Asset Allocation")

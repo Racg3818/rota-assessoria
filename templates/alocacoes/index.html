@@ -29,6 +29,12 @@
                 class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
           Ver Tabela
         </button>
+        <form action="{{ url_for('alocacoes.limpar_alocacoes_antigas') }}" method="POST" onsubmit="return confirm('Confirma a exclusão de todas as alocações efetivadas de meses anteriores?');" class="inline-block">
+          <button type="submit"
+                  class="px-4 py-2 bg-red-500/80 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors border border-white/20 backdrop-blur-sm">
+            🗑️ Limpar Antigas
+          </button>
+        </form>
         <a href="{{ url_for('alocacoes.novo') }}"
            class="px-4 py-2 bg-white text-emerald-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
           ➕ Nova Alocação
