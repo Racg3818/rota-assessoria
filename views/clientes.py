@@ -2104,23 +2104,43 @@ def asset_allocation():
                     # Buscar informações dos fundos na tabela mapa_liquidez
                     cnpjs_list = list(fundos_agrupados.keys())
                     if cnpjs_list:
+                        # Tentar buscar como INTEGER primeiro
                         res_mapa = supabase.table("mapa_liquidez")\
                             .select("*")\
                             .in_("CNPJ_FUNDO", cnpjs_list)\
                             .execute()
 
-                        current_app.logger.info(f"MAPA_LIQUIDEZ: Query retornou {len(res_mapa.data) if res_mapa.data else 0} fundos")
+                        current_app.logger.info(f"MAPA_LIQUIDEZ: Query com CNPJs como INT {cnpjs_list[:3]}... retornou {len(res_mapa.data) if res_mapa.data else 0} fundos")
+
+                        # Se não encontrou nada, tentar como STRING
+                        if not res_mapa.data:
+                            cnpjs_str_list = [str(cnpj) for cnpj in cnpjs_list]
+                            current_app.logger.info(f"MAPA_LIQUIDEZ: Tentando buscar como STRING: {cnpjs_str_list[:3]}...")
+                            res_mapa = supabase.table("mapa_liquidez")\
+                                .select("*")\
+                                .in_("CNPJ_FUNDO", cnpjs_str_list)\
+                                .execute()
+                            current_app.logger.info(f"MAPA_LIQUIDEZ: Query com CNPJs como STRING retornou {len(res_mapa.data) if res_mapa.data else 0} fundos")
 
                         if res_mapa.data:
                             for fundo in res_mapa.data:
                                 cnpj = fundo.get('CNPJ_FUNDO', '')
+                                # Converter CNPJ para int para buscar no dicionário fundos_agrupados
+                                try:
+                                    cnpj_int = int(str(cnpj).replace('.', '').replace('/', '').replace('-', ''))
+                                    valor_fundo = fundos_agrupados.get(cnpj_int, 0.0)
+                                except (ValueError, AttributeError):
+                                    current_app.logger.warning(f"MAPA_LIQUIDEZ: Erro ao converter CNPJ {cnpj} para int")
+                                    valor_fundo = 0.0
+
                                 mapa_liquidez.append({
                                     'nome_fundo': fundo.get('NOME_FUNDO', 'N/A'),
                                     'cnpj_fundo': str(cnpj),  # Converter para string para exibição
                                     'classificacao_cvm': fundo.get('CLASSIFICAÇÃO_CVM', 'N/A'),
                                     'resgate_total': fundo.get('RESGATE TOTAL', 0),
-                                    'valor': fundos_agrupados.get(cnpj, 0.0)
+                                    'valor': valor_fundo
                                 })
+                                current_app.logger.info(f"MAPA_LIQUIDEZ: Adicionado fundo {fundo.get('NOME_FUNDO', '')[:30]} (CNPJ {cnpj}) com valor R$ {valor_fundo:.2f}")
 
                             current_app.logger.info(f"MAPA_LIQUIDEZ: Encontrados {len(mapa_liquidez)} fundos no mapa de liquidez")
                         else:
