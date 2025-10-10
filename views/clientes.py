@@ -2047,29 +2047,128 @@ def asset_allocation():
                         else:
                             taxas_medias_ponderadas[idx] = 0.0
 
+                    # === IDENTIFICAR ATIVOS ABAIXO DA MÉDIA POR INDEXADOR ===
+                    ativos_abaixo_media = {
+                        'pos_fixado': [],
+                        'pre_fixado': [],
+                        'inflacao': [],
+                        'internacional': []
+                    }
+
                     if total_rf > 0:
+                        # Taxas médias de cada indexador
+                        taxa_media_pos = taxas_medias_ponderadas.get('% CDI', 0.0)
+                        taxa_media_pre = taxas_medias_ponderadas.get('PRE', 0.0) or taxas_medias_ponderadas.get('PRÉ', 0.0)
+                        taxa_media_inflacao = taxas_medias_ponderadas.get('IPCA', 0.0)
+                        taxa_media_internacional = taxas_medias_ponderadas.get('DOLAR PTAX', 0.0)
+
+                        # Percorrer posições RF e identificar ativos abaixo da média
+                        for pos_rf in posicoes_rf_cliente:
+                            indexador = (pos_rf.get('indexador', '') or '').strip().upper()
+                            custodia = _to_float(pos_rf.get('custodia', 0))
+                            taxa_cliente = _to_float(pos_rf.get('taxa_cliente', 0))
+                            # Buscar nome_papel e garantir que não seja vazio
+                            nome_papel = (pos_rf.get('nome_papel') or '').strip()
+                            if not nome_papel:
+                                # Identificar tipo de Tesouro Direto baseado no indexador
+                                if indexador in ['LFT', 'SELIC']:
+                                    nome_papel = 'Tesouro Selic'
+                                elif indexador == 'IPCA':
+                                    nome_papel = 'Tesouro IPCA+'
+                                elif indexador in ['PRE', 'PRÉ']:
+                                    nome_papel = 'Tesouro Prefixado'
+                                else:
+                                    nome_papel = 'Tesouro Direto'
+
+                            # Normalizar taxa para comparação
+                            taxa_normalizada = 0.0
+                            categoria_indexador = None
+                            taxa_media_ref = 0.0
+
+                            # Pós-fixado
+                            if indexador in ['LFT', 'SELIC']:
+                                taxa_normalizada = 100.0
+                                categoria_indexador = 'pos_fixado'
+                                taxa_media_ref = taxa_media_pos
+                            elif indexador == '% CDI':
+                                taxa_normalizada = taxa_cliente
+                                categoria_indexador = 'pos_fixado'
+                                taxa_media_ref = taxa_media_pos
+                            elif indexador == 'CDI +':
+                                taxa_normalizada = 100.0 + taxa_cliente
+                                categoria_indexador = 'pos_fixado'
+                                taxa_media_ref = taxa_media_pos
+                            elif indexador == 'RENDA+':
+                                taxa_normalizada = 100.0
+                                categoria_indexador = 'pos_fixado'
+                                taxa_media_ref = taxa_media_pos
+                            # Inflação
+                            elif indexador == 'IPCA':
+                                taxa_normalizada = taxa_cliente
+                                categoria_indexador = 'inflacao'
+                                taxa_media_ref = taxa_media_inflacao
+                            # Prefixado
+                            elif indexador in ['PRE', 'PRÉ']:
+                                taxa_normalizada = taxa_cliente
+                                categoria_indexador = 'pre_fixado'
+                                taxa_media_ref = taxa_media_pre
+                            # Internacional
+                            elif indexador == 'DOLAR PTAX':
+                                taxa_normalizada = taxa_cliente
+                                categoria_indexador = 'internacional'
+                                taxa_media_ref = taxa_media_internacional
+
+                            # Verificar se está abaixo da média (usar tolerância de 0.01 para evitar problemas de arredondamento)
+                            diferenca = taxa_media_ref - taxa_normalizada
+                            if categoria_indexador and taxa_media_ref > 0 and diferenca > 0.01:
+                                # Identificar tipo de ativo baseado no nome_papel
+                                tipo_ativo = 'outros'
+                                if not nome_papel or any(titulo in nome_papel for titulo in ['Tesouro', 'NTN-B', 'LFT', 'LTN', 'NTN-F', 'NTN-C']):
+                                    tipo_ativo = 'titulo_publico'
+                                elif nome_papel.upper().startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                                    tipo_ativo = 'emissao_bancaria'
+                                elif nome_papel.upper().startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                                    tipo_ativo = 'credito_privado'
+
+                                ativos_abaixo_media[categoria_indexador].append({
+                                    'nome': nome_papel or 'Sem nome',
+                                    'taxa': taxa_normalizada,
+                                    'taxa_media': taxa_media_ref,
+                                    'diferenca': diferenca,
+                                    'custodia': custodia,
+                                    'indexador': indexador,
+                                    'tipo_ativo': tipo_ativo
+                                })
+
+                        # Ordenar por diferença (maior diferença primeiro)
+                        for categoria in ativos_abaixo_media:
+                            ativos_abaixo_media[categoria].sort(key=lambda x: x['diferenca'], reverse=True)
+
+                        current_app.logger.info(f"ASSET_ALLOCATION: Ativos abaixo da média - Pós: {len(ativos_abaixo_media['pos_fixado'])}, Pré: {len(ativos_abaixo_media['pre_fixado'])}, Inflação: {len(ativos_abaixo_media['inflacao'])}, Internacional: {len(ativos_abaixo_media['internacional'])}")
+
                         exposicao_rf = {
                             'pos_fixado': {
                                 'total': total_pos_fixado,
                                 'percentual': (total_pos_fixado / total_rf * 100) if total_rf > 0 else 0,
-                                'taxa_ponderada': taxas_medias_ponderadas.get('% CDI', 0.0)
+                                'taxa_ponderada': taxa_media_pos
                             },
                             'pre_fixado': {
                                 'total': total_pre_fixado,
                                 'percentual': (total_pre_fixado / total_rf * 100) if total_rf > 0 else 0,
-                                'taxa_ponderada': taxas_medias_ponderadas.get('PRE', 0.0) or taxas_medias_ponderadas.get('PRÉ', 0.0)
+                                'taxa_ponderada': taxa_media_pre
                             },
                             'inflacao': {
                                 'total': total_inflacao,
                                 'percentual': (total_inflacao / total_rf * 100) if total_rf > 0 else 0,
-                                'taxa_ponderada': taxas_medias_ponderadas.get('IPCA', 0.0)
+                                'taxa_ponderada': taxa_media_inflacao
                             },
                             'internacional': {
                                 'total': total_internacional,
                                 'percentual': (total_internacional / total_rf * 100) if total_rf > 0 else 0,
-                                'taxa_ponderada': taxas_medias_ponderadas.get('DOLAR PTAX', 0.0)
+                                'taxa_ponderada': taxa_media_internacional
                             },
-                            'total_rf': total_rf
+                            'total_rf': total_rf,
+                            'ativos_abaixo_media': ativos_abaixo_media
                     }
 
             except Exception as e:

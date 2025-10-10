@@ -294,6 +294,246 @@
   </div>
   {% endif %}
 
+  <!-- ⚠️ ATIVOS ABAIXO DA MÉDIA (NOVO) -->
+  {% if exposicao_rf and exposicao_rf.ativos_abaixo_media %}
+  {% set total_abaixo_media = exposicao_rf.ativos_abaixo_media.pos_fixado|length + exposicao_rf.ativos_abaixo_media.pre_fixado|length + exposicao_rf.ativos_abaixo_media.inflacao|length + exposicao_rf.ativos_abaixo_media.internacional|length %}
+  {% if total_abaixo_media > 0 %}
+  <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border-2 border-amber-300 p-6">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-3xl">⚠️</span>
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Ativos Abaixo da Média</h2>
+        <p class="text-sm text-gray-600">Ativos com taxas inferiores à média do indexador</p>
+      </div>
+    </div>
+
+    <!-- Filtro de Indexador -->
+    <div class="mb-6">
+      <p class="text-sm font-medium text-gray-700 mb-3">Filtrar por indexador:</p>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="filtrarIndexador('todos')"
+                class="filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-amber-600 bg-amber-600 text-white hover:bg-amber-700"
+                data-indexador="todos">
+          Todos ({{ total_abaixo_media }})
+        </button>
+        {% if exposicao_rf.ativos_abaixo_media.pos_fixado|length > 0 %}
+        <button onclick="filtrarIndexador('pos_fixado')"
+                class="filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
+                data-indexador="pos_fixado">
+          📈 Pós-fixado ({{ exposicao_rf.ativos_abaixo_media.pos_fixado|length }})
+        </button>
+        {% endif %}
+        {% if exposicao_rf.ativos_abaixo_media.pre_fixado|length > 0 %}
+        <button onclick="filtrarIndexador('pre_fixado')"
+                class="filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-purple-400 hover:bg-purple-50"
+                data-indexador="pre_fixado">
+          📊 Prefixado ({{ exposicao_rf.ativos_abaixo_media.pre_fixado|length }})
+        </button>
+        {% endif %}
+        {% if exposicao_rf.ativos_abaixo_media.inflacao|length > 0 %}
+        <button onclick="filtrarIndexador('inflacao')"
+                class="filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-orange-400 hover:bg-orange-50"
+                data-indexador="inflacao">
+          📉 Inflação ({{ exposicao_rf.ativos_abaixo_media.inflacao|length }})
+        </button>
+        {% endif %}
+        {% if exposicao_rf.ativos_abaixo_media.internacional|length > 0 %}
+        <button onclick="filtrarIndexador('internacional')"
+                class="filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-teal-400 hover:bg-teal-50"
+                data-indexador="internacional">
+          🌎 Internacional ({{ exposicao_rf.ativos_abaixo_media.internacional|length }})
+        </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Filtro de Tipo de Ativo -->
+    <div class="mb-6">
+      <p class="text-sm font-medium text-gray-700 mb-3">Filtrar por tipo de ativo:</p>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="filtrarTipoAtivo('todos')"
+                class="filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-purple-600 bg-purple-600 text-white hover:bg-purple-700"
+                data-tipo="todos">
+          Todos
+        </button>
+        <button onclick="filtrarTipoAtivo('credito_privado')"
+                class="filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-purple-400 hover:bg-purple-50"
+                data-tipo="credito_privado">
+          📜 Crédito Privado
+        </button>
+        <button onclick="filtrarTipoAtivo('emissao_bancaria')"
+                class="filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
+                data-tipo="emissao_bancaria">
+          🏦 Emissão Bancária
+        </button>
+        <button onclick="filtrarTipoAtivo('titulo_publico')"
+                class="filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-green-400 hover:bg-green-50"
+                data-tipo="titulo_publico">
+          🏛️ Título Público
+        </button>
+      </div>
+    </div>
+
+    <!-- Lista de Ativos -->
+    <div class="space-y-3">
+
+      <!-- Ativos Pós-fixado -->
+      {% for ativo in exposicao_rf.ativos_abaixo_media.pos_fixado %}
+      <div class="ativo-card bg-white rounded-xl shadow-md p-4 border-l-4 border-blue-500 hover:shadow-lg transition-shadow" data-categoria="pos_fixado" data-tipo-ativo="{{ ativo.tipo_ativo }}">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-lg">📈</span>
+              <h3 class="text-sm font-bold text-gray-800 truncate">{{ ativo.nome }}</h3>
+            </div>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-lg font-medium">
+                Pós-fixado: {{ ativo.indexador }}
+              </span>
+              <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg font-mono">
+                {{ ativo.custodia|brl }}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa do ativo</p>
+              <p class="text-lg font-bold text-blue-600">{{ "%.2f"|format(ativo.taxa) }}% CDI</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa média</p>
+              <p class="text-lg font-bold text-gray-700">{{ "%.2f"|format(ativo.taxa_media) }}% CDI</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-amber-700 font-medium">Diferença</p>
+              <p class="text-lg font-bold text-amber-600">-{{ "%.2f"|format(ativo.diferenca) }}%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Ativos Prefixado -->
+      {% for ativo in exposicao_rf.ativos_abaixo_media.pre_fixado %}
+      <div class="ativo-card bg-white rounded-xl shadow-md p-4 border-l-4 border-purple-500 hover:shadow-lg transition-shadow" data-categoria="pre_fixado" data-tipo-ativo="{{ ativo.tipo_ativo }}">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-lg">📊</span>
+              <h3 class="text-sm font-bold text-gray-800 truncate">{{ ativo.nome }}</h3>
+            </div>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-2 py-1 bg-purple-100 text-purple-800 rounded-lg font-medium">
+                Prefixado
+              </span>
+              <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg font-mono">
+                {{ ativo.custodia|brl }}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa do ativo</p>
+              <p class="text-lg font-bold text-purple-600">{{ "%.2f"|format(ativo.taxa) }}% a.a.</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa média</p>
+              <p class="text-lg font-bold text-gray-700">{{ "%.2f"|format(ativo.taxa_media) }}% a.a.</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-amber-700 font-medium">Diferença</p>
+              <p class="text-lg font-bold text-amber-600">-{{ "%.2f"|format(ativo.diferenca) }}%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Ativos Inflação -->
+      {% for ativo in exposicao_rf.ativos_abaixo_media.inflacao %}
+      <div class="ativo-card bg-white rounded-xl shadow-md p-4 border-l-4 border-orange-500 hover:shadow-lg transition-shadow" data-categoria="inflacao" data-tipo-ativo="{{ ativo.tipo_ativo }}">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-lg">📉</span>
+              <h3 class="text-sm font-bold text-gray-800 truncate">{{ ativo.nome }}</h3>
+            </div>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-lg font-medium">
+                Inflação (IPCA)
+              </span>
+              <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg font-mono">
+                {{ ativo.custodia|brl }}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa do ativo</p>
+              <p class="text-lg font-bold text-orange-600">IPCA + {{ "%.2f"|format(ativo.taxa) }}%</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa média</p>
+              <p class="text-lg font-bold text-gray-700">IPCA + {{ "%.2f"|format(ativo.taxa_media) }}%</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-amber-700 font-medium">Diferença</p>
+              <p class="text-lg font-bold text-amber-600">-{{ "%.2f"|format(ativo.diferenca) }}%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Ativos Internacional -->
+      {% for ativo in exposicao_rf.ativos_abaixo_media.internacional %}
+      <div class="ativo-card bg-white rounded-xl shadow-md p-4 border-l-4 border-teal-500 hover:shadow-lg transition-shadow" data-categoria="internacional" data-tipo-ativo="{{ ativo.tipo_ativo }}">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-lg">🌎</span>
+              <h3 class="text-sm font-bold text-gray-800 truncate">{{ ativo.nome }}</h3>
+            </div>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-2 py-1 bg-teal-100 text-teal-800 rounded-lg font-medium">
+                Internacional (Dólar)
+              </span>
+              <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg font-mono">
+                {{ ativo.custodia|brl }}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa do ativo</p>
+              <p class="text-lg font-bold text-teal-600">{{ "%.2f"|format(ativo.taxa) }}% a.a.</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-gray-600">Taxa média</p>
+              <p class="text-lg font-bold text-gray-700">{{ "%.2f"|format(ativo.taxa_media) }}% a.a.</p>
+            </div>
+            <div class="w-px h-12 bg-gray-300"></div>
+            <div class="text-right">
+              <p class="text-xs text-amber-700 font-medium">Diferença</p>
+              <p class="text-lg font-bold text-amber-600">-{{ "%.2f"|format(ativo.diferenca) }}%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
   <!-- 🎨 EXPOSIÇÃO POR TIPO DE ATIVO (NOVO) -->
   {% if exposicao_por_tipo and exposicao_por_tipo.total_geral > 0 %}
   <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200 p-6">
@@ -1157,6 +1397,71 @@
       fecharModalAlocacao();
     }
   });
+</script>
+{% endif %}
+
+<!-- Script de filtro de indexador para ativos abaixo da média -->
+{% if exposicao_rf and exposicao_rf.ativos_abaixo_media %}
+<script>
+  // Estado global dos filtros
+  let filtroIndexadorAtivo = 'todos';
+  let filtroTipoAtivoAtivo = 'todos';
+
+  // Função para aplicar ambos os filtros
+  function aplicarFiltros() {
+    const cards = document.querySelectorAll('.ativo-card');
+
+    cards.forEach(card => {
+      const categoria = card.getAttribute('data-categoria');
+      const tipoAtivo = card.getAttribute('data-tipo-ativo');
+
+      // Verificar se o card passa pelos dois filtros
+      const passaIndexador = (filtroIndexadorAtivo === 'todos' || categoria === filtroIndexadorAtivo);
+      const passaTipoAtivo = (filtroTipoAtivoAtivo === 'todos' || tipoAtivo === filtroTipoAtivoAtivo);
+
+      if (passaIndexador && passaTipoAtivo) {
+        card.style.display = '';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  }
+
+  // Função para filtrar ativos por indexador
+  function filtrarIndexador(indexador) {
+    filtroIndexadorAtivo = indexador;
+    const botoes = document.querySelectorAll('.filtro-indexador');
+
+    // Atualizar estilos dos botões
+    botoes.forEach(btn => {
+      const btnIndexador = btn.getAttribute('data-indexador');
+      if (btnIndexador === indexador) {
+        btn.className = 'filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-amber-600 bg-amber-600 text-white hover:bg-amber-700';
+      } else {
+        btn.className = 'filtro-indexador px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50';
+      }
+    });
+
+    aplicarFiltros();
+  }
+
+  // Função para filtrar ativos por tipo de ativo
+  function filtrarTipoAtivo(tipo) {
+    filtroTipoAtivoAtivo = tipo;
+    const botoes = document.querySelectorAll('.filtro-tipo-ativo');
+
+    // Atualizar estilos dos botões
+    botoes.forEach(btn => {
+      const btnTipo = btn.getAttribute('data-tipo');
+      if (btnTipo === tipo) {
+        btn.className = 'filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-purple-600 bg-purple-600 text-white hover:bg-purple-700';
+      } else {
+        btn.className = 'filtro-tipo-ativo px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 border-2 border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50';
+      }
+    });
+
+    aplicarFiltros();
+  }
 </script>
 {% endif %}
 
