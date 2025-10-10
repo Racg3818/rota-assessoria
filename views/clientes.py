@@ -1640,6 +1640,14 @@ def asset_allocation():
         credito_privado_emissores = []
         exposicao_rf = {}
         mapa_liquidez = []
+        valores_ir = {
+            'total_com_ir': 0.0,
+            'total_sem_ir': 0.0,
+            'total_isento': 0.0,
+            'total_tributado': 0.0,
+            'percentual_isento': 0.0,
+            'percentual_tributado': 0.0
+        }
 
         if cliente_selecionado:
             # Buscar o nome do cliente selecionado
@@ -2285,6 +2293,58 @@ def asset_allocation():
                 import traceback
                 current_app.logger.warning(f"MAPA_LIQUIDEZ: Traceback: {traceback.format_exc()}")
 
+            # === CÁLCULO DE IMPOSTO DE RENDA ===
+            # Ativos isentos de IR: LCI, LCA, LCD, DEB, CRI, CRA
+            valores_ir = {
+                'total_com_ir': 0.0,
+                'total_sem_ir': 0.0,
+                'total_isento': 0.0,
+                'total_tributado': 0.0,
+                'percentual_isento': 0.0,
+                'percentual_tributado': 0.0
+            }
+
+            if exposicao_rf and exposicao_rf.get('total_rf', 0) > 0:
+                try:
+                    # Buscar dados de custódia RF para classificar ativos isentos
+                    res_custodia_rf_ir = supabase.table("custodia_rf")\
+                        .select("nome_papel, custodia")\
+                        .eq("user_id", uid)\
+                        .eq("cod_conta", str(cliente_selecionado))\
+                        .execute()
+
+                    if res_custodia_rf_ir.data:
+                        for pos in res_custodia_rf_ir.data:
+                            nome_papel = (pos.get('nome_papel', '') or '').strip().upper()
+                            custodia = _to_float(pos.get('custodia', 0))
+
+                            # Verificar se é isento de IR
+                            # Ativos isentos: LCI, LCA, LCD, DEB, CRI, CRA
+                            isento = any(nome_papel.startswith(tipo) for tipo in ['LCI', 'LCA', 'LCD', 'DEB', 'CRI', 'CRA'])
+
+                            if isento:
+                                valores_ir['total_isento'] += custodia
+                            else:
+                                valores_ir['total_tributado'] += custodia
+
+                        # Calcular totais
+                        total_carteira_rf = valores_ir['total_isento'] + valores_ir['total_tributado']
+                        valores_ir['total_com_ir'] = total_carteira_rf
+                        # Para ativos isentos, o valor sem IR é igual ao valor com IR
+                        # Para ativos tributados, consideramos IR médio de 17.5% (tributação regressiva)
+                        valores_ir['total_sem_ir'] = valores_ir['total_isento'] + (valores_ir['total_tributado'] * 0.825)
+
+                        # Calcular percentuais
+                        if total_carteira_rf > 0:
+                            valores_ir['percentual_isento'] = (valores_ir['total_isento'] / total_carteira_rf) * 100
+                            valores_ir['percentual_tributado'] = (valores_ir['total_tributado'] / total_carteira_rf) * 100
+
+                        current_app.logger.info(f"ASSET_ALLOCATION IR: Total carteira RF: R$ {total_carteira_rf:,.2f} | Isento: R$ {valores_ir['total_isento']:,.2f} ({valores_ir['percentual_isento']:.1f}%) | Tributado: R$ {valores_ir['total_tributado']:,.2f} ({valores_ir['percentual_tributado']:.1f}%)")
+                        current_app.logger.info(f"ASSET_ALLOCATION IR: Valor com IR: R$ {valores_ir['total_com_ir']:,.2f} | Valor líquido estimado (sem IR): R$ {valores_ir['total_sem_ir']:,.2f}")
+
+                except Exception as e:
+                    current_app.logger.warning(f"ASSET_ALLOCATION IR: Erro ao calcular valores de IR: {e}")
+
         return render_template('clientes/asset_allocation.html',
                              clientes=clientes_com_nome,
                              letras_disponiveis=letras_disponiveis,
@@ -2298,7 +2358,8 @@ def asset_allocation():
                              credito_privado_vencimentos=credito_privado_vencimentos if cliente_selecionado else [],
                              credito_privado_emissores=credito_privado_emissores if cliente_selecionado else [],
                              exposicao_rf=exposicao_rf,
-                             mapa_liquidez=mapa_liquidez)
+                             mapa_liquidez=mapa_liquidez,
+                             valores_ir=valores_ir)
 
     except Exception:
         current_app.logger.exception("Falha ao carregar Asset Allocation")
@@ -2313,3 +2374,1247 @@ def asset_allocation():
                              credito_privado_vencimentos=[],
                              credito_privado_emissores=[],
                              exposicao_rf={})
+
+
+@clientes_bp.route('/asset-allocation/pdf')
+@login_required
+def asset_allocation_pdf():
+    """Gera PDF do Asset Allocation para o cliente selecionado - REPLICA EXATAMENTE A PÁGINA WEB"""
+    from flask import make_response
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.graphics.charts.barcharts import HorizontalBarChart
+    from reportlab.graphics.charts.legends import Legend
+
+    supabase = _get_supabase()
+    if not supabase:
+        flash("Supabase indisponível.", "warning")
+        return redirect(url_for('clientes.asset_allocation'))
+
+    uid = _uid()
+    if not uid:
+        flash("Sessão inválida.", "error")
+        return redirect(url_for('clientes.asset_allocation'))
+
+    cliente_codigo = request.args.get('cliente')
+    if not cliente_codigo:
+        flash("Nenhum cliente selecionado.", "warning")
+        return redirect(url_for('clientes.asset_allocation'))
+
+    try:
+        # ===========================
+        # BUSCAR NOME DO CLIENTE
+        # ===========================
+        res_nomes = supabase.table("clientes")\
+            .select("codigo_xp, codigo_mb, nome")\
+            .eq("user_id", uid)\
+            .execute()
+
+        codigo_para_nome = {}
+        for cliente in (res_nomes.data or []):
+            codigo_xp = (cliente.get('codigo_xp') or '').strip()
+            codigo_mb = (cliente.get('codigo_mb') or '').strip()
+            nome = cliente.get('nome', '')
+            if codigo_xp:
+                codigo_para_nome[codigo_xp] = nome
+            if codigo_mb:
+                codigo_para_nome[codigo_mb] = nome
+
+        cliente_nome = codigo_para_nome.get(cliente_codigo, f'Cliente {cliente_codigo}')
+
+        # ===========================
+        # BUSCAR DADOS DO DIVERSIFICADOR (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        res_posicoes = supabase.table("diversificador")\
+            .select("*")\
+            .eq("user_id", uid)\
+            .eq("cliente", cliente_codigo)\
+            .execute()
+
+        posicoes = res_posicoes.data or []
+
+        # Agrupar por Produto
+        agrupamento_produto = {}
+        for pos in posicoes:
+            produto = pos.get('produto', 'Não Informado')
+            net = _to_float(pos.get('net', 0))
+            if produto not in agrupamento_produto:
+                agrupamento_produto[produto] = 0.0
+            agrupamento_produto[produto] += net
+        por_produto = [{'categoria': k, 'valor': v} for k, v in agrupamento_produto.items()]
+        por_produto.sort(key=lambda x: x['valor'], reverse=True)
+
+        # Agrupar por Sub Produto
+        agrupamento_sub_produto = {}
+        for pos in posicoes:
+            sub_produto = pos.get('sub_produto', 'Não Informado')
+            net = _to_float(pos.get('net', 0))
+            if sub_produto not in agrupamento_sub_produto:
+                agrupamento_sub_produto[sub_produto] = 0.0
+            agrupamento_sub_produto[sub_produto] += net
+        por_sub_produto = [{'categoria': k, 'valor': v} for k, v in agrupamento_sub_produto.items()]
+        por_sub_produto.sort(key=lambda x: x['valor'], reverse=True)
+
+        # Agrupar por Ativo (top 20)
+        agrupamento_ativo = {}
+        for pos in posicoes:
+            ativo = pos.get('ativo', 'Não Informado')
+            net = _to_float(pos.get('net', 0))
+            if ativo not in agrupamento_ativo:
+                agrupamento_ativo[ativo] = 0.0
+            agrupamento_ativo[ativo] += net
+        por_ativo = [{'categoria': k, 'valor': v} for k, v in agrupamento_ativo.items()]
+        por_ativo.sort(key=lambda x: x['valor'], reverse=True)
+        por_ativo = por_ativo[:20]
+
+        # Agrupar por Emissor (top 20)
+        agrupamento_emissor = {}
+        for pos in posicoes:
+            emissor = pos.get('emissor', 'Não Informado')
+            net = _to_float(pos.get('net', 0))
+            if emissor not in agrupamento_emissor:
+                agrupamento_emissor[emissor] = 0.0
+            agrupamento_emissor[emissor] += net
+        por_emissor = [{'categoria': k, 'valor': v} for k, v in agrupamento_emissor.items()]
+        por_emissor.sort(key=lambda x: x['valor'], reverse=True)
+        por_emissor = por_emissor[:20]
+
+        # ===========================
+        # CLASSIFICAÇÃO POR TIPO DE ATIVO (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        total_emissao_bancaria = 0.0
+        total_credito_privado = 0.0
+        total_titulo_publico = 0.0
+        total_geral = 0.0
+        detalhes_bancaria = {}
+        detalhes_credito = {}
+        detalhes_publico = {}
+
+        # Buscar dados de custodia_rf para classificar tipos
+        try:
+            res_custodia_rf_tipos = supabase.table("custodia_rf")\
+                .select("cod_conta, nome_papel, custodia")\
+                .eq("user_id", uid)\
+                .eq("cod_conta", str(cliente_codigo))\
+                .execute()
+
+            custodia_rf_dict = {}
+            if res_custodia_rf_tipos.data:
+                for item in res_custodia_rf_tipos.data:
+                    nome_papel = (item.get('nome_papel', '') or '').strip().upper()
+                    custodia = _to_float(item.get('custodia', 0))
+                    custodia_rf_dict[nome_papel] = custodia_rf_dict.get(nome_papel, 0.0) + custodia
+
+            # Classificar usando nome_papel (LÓGICA IDÊNTICA À asset_allocation)
+            for nome_papel, valor in custodia_rf_dict.items():
+                total_geral += valor
+
+                # Tesouro Direto: nome_papel vazio (NULL)
+                if not nome_papel:
+                    total_titulo_publico += valor
+                    detalhes_publico['Tesouro Direto'] = detalhes_publico.get('Tesouro Direto', 0.0) + valor
+
+                # Emissão Bancária: CDB, LCD, LCI, LCA, LF
+                elif nome_papel.startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                    total_emissao_bancaria += valor
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else nome_papel[:3]
+                    detalhes_bancaria[tipo_detalhe] = detalhes_bancaria.get(tipo_detalhe, 0.0) + valor
+
+                # Crédito Privado: DEB, CDCA, CRA, CRI, FIDC
+                elif nome_papel.startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                    total_credito_privado += valor
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else nome_papel[:4] if nome_papel.startswith('CDCA') or nome_papel.startswith('FIDC') else nome_papel[:3]
+                    detalhes_credito[tipo_detalhe] = detalhes_credito.get(tipo_detalhe, 0.0) + valor
+
+                # Título Público: NTN-B, LFT, LTN, NTN-F, NTN-C
+                elif nome_papel.startswith(('NTN-B', 'LFT', 'LTN', 'NTN-F', 'NTN-C')):
+                    total_titulo_publico += valor
+                    tipo_detalhe = nome_papel.split()[0] if ' ' in nome_papel else ('NTN-B' if nome_papel.startswith('NTN-B') else 'NTN-F' if nome_papel.startswith('NTN-F') else 'NTN-C' if nome_papel.startswith('NTN-C') else nome_papel[:3])
+                    detalhes_publico[tipo_detalhe] = detalhes_publico.get(tipo_detalhe, 0.0) + valor
+
+        except Exception as e:
+            current_app.logger.warning(f"ASSET_ALLOCATION_PDF: Erro ao buscar tipos de ativo: {e}")
+
+        # Preparar dados de exposição por tipo (IGUAL À FUNÇÃO asset_allocation)
+        total_renda_fixa = total_emissao_bancaria + total_credito_privado + total_titulo_publico
+        exposicao_por_tipo = {
+            'emissao_bancaria': {
+                'total': total_emissao_bancaria,
+                'percentual': (total_emissao_bancaria / total_geral * 100) if total_geral > 0 else 0,
+                'percentual_rf': (total_emissao_bancaria / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_emissao_bancaria * 100) if total_emissao_bancaria > 0 else 0}
+                            for k, v in sorted(detalhes_bancaria.items(), key=lambda x: x[1], reverse=True)]
+            },
+            'credito_privado': {
+                'total': total_credito_privado,
+                'percentual': (total_credito_privado / total_geral * 100) if total_geral > 0 else 0,
+                'percentual_rf': (total_credito_privado / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_credito_privado * 100) if total_credito_privado > 0 else 0}
+                            for k, v in sorted(detalhes_credito.items(), key=lambda x: x[1], reverse=True)]
+            },
+            'titulo_publico': {
+                'total': total_titulo_publico,
+                'percentual': (total_titulo_publico / total_geral * 100) if total_geral > 0 else 0,
+                'percentual_rf': (total_titulo_publico / total_renda_fixa * 100) if total_renda_fixa > 0 else 0,
+                'detalhes': [{'tipo': k, 'valor': v, 'percentual': (v / total_titulo_publico * 100) if total_titulo_publico > 0 else 0}
+                            for k, v in sorted(detalhes_publico.items(), key=lambda x: x[1], reverse=True)]
+            },
+            'total_geral': total_geral,
+            'total_renda_fixa': total_renda_fixa
+        }
+
+        # ===========================
+        # EXPOSIÇÃO RENDA FIXA POR INDEXADOR (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        exposicao_rf = {}
+        ativos_abaixo_media = {'pos_fixado': [], 'pre_fixado': [], 'inflacao': [], 'internacional': []}
+
+        try:
+            res_custodia_rf = supabase.table("custodia_rf")\
+                .select("*")\
+                .eq("user_id", uid)\
+                .execute()
+
+            if res_custodia_rf.data:
+                posicoes_rf_cliente = [
+                    pos for pos in res_custodia_rf.data
+                    if str(pos.get('cod_conta')) == str(cliente_codigo)
+                ]
+
+                # Classificar por indexador
+                total_pos_fixado = 0.0
+                total_pre_fixado = 0.0
+                total_inflacao = 0.0
+                total_internacional = 0.0
+                total_rf = 0.0
+
+                # Acumuladores para taxas ponderadas
+                taxas_ponderadas = {}
+
+                for pos_rf in posicoes_rf_cliente:
+                    indexador = (pos_rf.get('indexador', '') or '').strip().upper()
+                    custodia = _to_float(pos_rf.get('custodia', 0))
+                    taxa_cliente = _to_float(pos_rf.get('taxa_cliente', 0))
+                    total_rf += custodia
+
+                    # Classificação por indexador (LÓGICA IDÊNTICA)
+                    if indexador in ['% CDI', 'CDI +', 'LFT', 'RENDA+', 'SELIC']:
+                        total_pos_fixado += custodia
+                    elif indexador == 'IPCA':
+                        total_inflacao += custodia
+                    elif indexador in ['PRE', 'PRÉ']:
+                        total_pre_fixado += custodia
+                    elif indexador == 'DOLAR PTAX':
+                        total_internacional += custodia
+
+                    # Calcular taxa ponderada
+                    indexador_normalizado = indexador
+                    taxa_percentual_cdi = 0.0
+
+                    if indexador in ['LFT', 'SELIC']:
+                        indexador_normalizado = '% CDI'
+                        taxa_percentual_cdi = 100.0
+                    elif indexador == '% CDI':
+                        taxa_percentual_cdi = taxa_cliente
+                    elif indexador == 'CDI +':
+                        indexador_normalizado = '% CDI'
+                        taxa_percentual_cdi = 100.0 + taxa_cliente
+                    elif indexador == 'RENDA+':
+                        indexador_normalizado = '% CDI'
+                        taxa_percentual_cdi = 100.0
+                    else:
+                        taxa_percentual_cdi = taxa_cliente
+
+                    if indexador_normalizado not in taxas_ponderadas:
+                        taxas_ponderadas[indexador_normalizado] = {'total_ponderado': 0.0, 'total_custodia': 0.0}
+
+                    taxas_ponderadas[indexador_normalizado]['total_ponderado'] += custodia * taxa_percentual_cdi
+                    taxas_ponderadas[indexador_normalizado]['total_custodia'] += custodia
+
+                # Calcular taxas médias ponderadas
+                taxas_medias_ponderadas = {}
+                for idx, dados in taxas_ponderadas.items():
+                    if dados['total_custodia'] > 0:
+                        taxa_media = dados['total_ponderado'] / dados['total_custodia']
+                        taxas_medias_ponderadas[idx] = taxa_media
+                    else:
+                        taxas_medias_ponderadas[idx] = 0.0
+
+                # === IDENTIFICAR ATIVOS ABAIXO DA MÉDIA (LÓGICA IDÊNTICA) ===
+                if total_rf > 0:
+                    taxa_media_pos = taxas_medias_ponderadas.get('% CDI', 0.0)
+                    taxa_media_pre = taxas_medias_ponderadas.get('PRE', 0.0) or taxas_medias_ponderadas.get('PRÉ', 0.0)
+                    taxa_media_inflacao = taxas_medias_ponderadas.get('IPCA', 0.0)
+                    taxa_media_internacional = taxas_medias_ponderadas.get('DOLAR PTAX', 0.0)
+
+                    for pos_rf in posicoes_rf_cliente:
+                        indexador = (pos_rf.get('indexador', '') or '').strip().upper()
+                        custodia = _to_float(pos_rf.get('custodia', 0))
+                        taxa_cliente = _to_float(pos_rf.get('taxa_cliente', 0))
+                        nome_papel = (pos_rf.get('nome_papel') or '').strip()
+
+                        if not nome_papel:
+                            if indexador in ['LFT', 'SELIC']:
+                                nome_papel = 'Tesouro Selic'
+                            elif indexador == 'IPCA':
+                                nome_papel = 'Tesouro IPCA+'
+                            elif indexador in ['PRE', 'PRÉ']:
+                                nome_papel = 'Tesouro Prefixado'
+                            else:
+                                nome_papel = 'Tesouro Direto'
+
+                        # Normalizar taxa para comparação
+                        taxa_normalizada = 0.0
+                        categoria_indexador = None
+                        taxa_media_ref = 0.0
+
+                        if indexador in ['LFT', 'SELIC']:
+                            taxa_normalizada = 100.0
+                            categoria_indexador = 'pos_fixado'
+                            taxa_media_ref = taxa_media_pos
+                        elif indexador == '% CDI':
+                            taxa_normalizada = taxa_cliente
+                            categoria_indexador = 'pos_fixado'
+                            taxa_media_ref = taxa_media_pos
+                        elif indexador == 'CDI +':
+                            taxa_normalizada = 100.0 + taxa_cliente
+                            categoria_indexador = 'pos_fixado'
+                            taxa_media_ref = taxa_media_pos
+                        elif indexador == 'RENDA+':
+                            taxa_normalizada = 100.0
+                            categoria_indexador = 'pos_fixado'
+                            taxa_media_ref = taxa_media_pos
+                        elif indexador == 'IPCA':
+                            taxa_normalizada = taxa_cliente
+                            categoria_indexador = 'inflacao'
+                            taxa_media_ref = taxa_media_inflacao
+                        elif indexador in ['PRE', 'PRÉ']:
+                            taxa_normalizada = taxa_cliente
+                            categoria_indexador = 'pre_fixado'
+                            taxa_media_ref = taxa_media_pre
+                        elif indexador == 'DOLAR PTAX':
+                            taxa_normalizada = taxa_cliente
+                            categoria_indexador = 'internacional'
+                            taxa_media_ref = taxa_media_internacional
+
+                        # Verificar se está abaixo da média
+                        diferenca = taxa_media_ref - taxa_normalizada
+                        if categoria_indexador and taxa_media_ref > 0 and diferenca > 0.01:
+                            tipo_ativo = 'outros'
+                            if not nome_papel or any(titulo in nome_papel for titulo in ['Tesouro', 'NTN-B', 'LFT', 'LTN', 'NTN-F', 'NTN-C']):
+                                tipo_ativo = 'titulo_publico'
+                            elif nome_papel.upper().startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                                tipo_ativo = 'emissao_bancaria'
+                            elif nome_papel.upper().startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                                tipo_ativo = 'credito_privado'
+
+                            ativos_abaixo_media[categoria_indexador].append({
+                                'nome': nome_papel or 'Sem nome',
+                                'taxa': taxa_normalizada,
+                                'taxa_media': taxa_media_ref,
+                                'diferenca': diferenca,
+                                'custodia': custodia,
+                                'indexador': indexador,
+                                'tipo_ativo': tipo_ativo
+                            })
+
+                    # Ordenar por diferença
+                    for categoria in ativos_abaixo_media:
+                        ativos_abaixo_media[categoria].sort(key=lambda x: x['diferenca'], reverse=True)
+
+                    exposicao_rf = {
+                        'pos_fixado': {
+                            'total': total_pos_fixado,
+                            'percentual': (total_pos_fixado / total_rf * 100) if total_rf > 0 else 0,
+                            'taxa_ponderada': taxa_media_pos
+                        },
+                        'pre_fixado': {
+                            'total': total_pre_fixado,
+                            'percentual': (total_pre_fixado / total_rf * 100) if total_rf > 0 else 0,
+                            'taxa_ponderada': taxa_media_pre
+                        },
+                        'inflacao': {
+                            'total': total_inflacao,
+                            'percentual': (total_inflacao / total_rf * 100) if total_rf > 0 else 0,
+                            'taxa_ponderada': taxa_media_inflacao
+                        },
+                        'internacional': {
+                            'total': total_internacional,
+                            'percentual': (total_internacional / total_rf * 100) if total_rf > 0 else 0,
+                            'taxa_ponderada': taxa_media_internacional
+                        },
+                        'total_rf': total_rf,
+                        'ativos_abaixo_media': ativos_abaixo_media
+                    }
+
+        except Exception as e:
+            current_app.logger.warning(f"Erro ao buscar dados de custódia RF: {e}")
+
+        # ===========================
+        # ANÁLISE DE VENCIMENTOS E EMISSORES (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        credito_privado_vencimentos = []
+        credito_privado_emissores = []
+
+        try:
+            res_cp_rf = supabase.table("custodia_rf")\
+                .select("*")\
+                .eq("user_id", uid)\
+                .eq("cod_conta", str(cliente_codigo))\
+                .execute()
+
+            if res_cp_rf.data:
+                # === ANÁLISE POR VENCIMENTO ===
+                vencimentos_por_ano = {}
+                total_com_vencimento = 0.0
+
+                for pos in res_cp_rf.data:
+                    custodia = _to_float(pos.get('custodia', 0))
+                    vencimento = pos.get('vencimento')
+
+                    if vencimento:
+                        try:
+                            if isinstance(vencimento, str):
+                                ano = int(vencimento[:4])
+                            elif hasattr(vencimento, 'year'):
+                                ano = vencimento.year
+                            else:
+                                ano = int(vencimento)
+
+                            if ano not in vencimentos_por_ano:
+                                vencimentos_por_ano[ano] = {'total': 0.0, 'count': 0}
+
+                            vencimentos_por_ano[ano]['total'] += custodia
+                            vencimentos_por_ano[ano]['count'] += 1
+                            total_com_vencimento += custodia
+                        except (ValueError, TypeError, IndexError) as e:
+                            current_app.logger.warning(f"Erro ao extrair ano: {e}")
+
+                for ano in sorted(vencimentos_por_ano.keys()):
+                    dados = vencimentos_por_ano[ano]
+                    credito_privado_vencimentos.append({
+                        'label': str(ano),
+                        'total': dados['total'],
+                        'count': dados['count'],
+                        'percentual_carteira': (dados['total'] / total_com_vencimento * 100) if total_com_vencimento > 0 else 0
+                    })
+
+                # === ANÁLISE POR EMISSOR ===
+                emissores_agrupados = {}
+
+                for pos in res_cp_rf.data:
+                    nome_papel = (pos.get('nome_papel', '') or '').strip()
+                    custodia = _to_float(pos.get('custodia', 0))
+
+                    emissor = 'Não Informado'
+                    tipo_ativo = 'outros'
+
+                    if not nome_papel:
+                        emissor = 'Tesouro Nacional'
+                        tipo_ativo = 'titulo_publico'
+                    elif any(titulo in nome_papel for titulo in ['NTN-B', 'LFT', 'NTN-C', 'LTN', 'NTN-F']):
+                        emissor = 'Tesouro Nacional'
+                        tipo_ativo = 'titulo_publico'
+                    else:
+                        nome_upper = nome_papel.upper()
+                        if nome_upper.startswith(('CDB', 'LCD', 'LCI', 'LCA', 'LF')):
+                            tipo_ativo = 'emissao_bancaria'
+                        elif nome_upper.startswith(('DEB', 'CDCA', 'CRA', 'CRI', 'FIDC')):
+                            tipo_ativo = 'credito_privado'
+
+                        partes = nome_papel.split()
+                        if len(partes) >= 2:
+                            resto = ' '.join(partes[1:])
+                            if ' - ' in resto:
+                                emissor = resto.split(' - ')[0].strip()
+                            elif '-' in resto:
+                                emissor = resto.split('-')[0].strip()
+                            else:
+                                emissor = partes[1].strip()
+
+                    if emissor not in emissores_agrupados:
+                        emissores_agrupados[emissor] = {'total': 0.0, 'count': 0, 'tipo_ativo': tipo_ativo}
+
+                    emissores_agrupados[emissor]['total'] += custodia
+                    emissores_agrupados[emissor]['count'] += 1
+
+                for emissor, dados in emissores_agrupados.items():
+                    acima_fgc = (dados['tipo_ativo'] == 'emissao_bancaria' and dados['total'] > 250000)
+
+                    credito_privado_emissores.append({
+                        'nome': emissor,
+                        'total': dados['total'],
+                        'count': dados['count'],
+                        'percentual_carteira': (dados['total'] / total_geral * 100) if total_geral > 0 else 0,
+                        'acima_fgc': acima_fgc,
+                        'tipo_ativo': dados['tipo_ativo']
+                    })
+
+                credito_privado_emissores.sort(key=lambda x: x['percentual_carteira'], reverse=True)
+                credito_privado_emissores = credito_privado_emissores[:10]
+
+        except Exception as e:
+            current_app.logger.warning(f"Erro ao buscar vencimentos/emissores: {e}")
+
+        # ===========================
+        # CÁLCULO DE IMPOSTO DE RENDA (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        valores_ir = {
+            'total_com_ir': 0.0,
+            'total_sem_ir': 0.0,
+            'total_isento': 0.0,
+            'total_tributado': 0.0,
+            'percentual_isento': 0.0,
+            'percentual_tributado': 0.0
+        }
+
+        if exposicao_rf and exposicao_rf.get('total_rf', 0) > 0:
+            try:
+                res_custodia_rf_ir = supabase.table("custodia_rf")\
+                    .select("nome_papel, custodia")\
+                    .eq("user_id", uid)\
+                    .eq("cod_conta", str(cliente_codigo))\
+                    .execute()
+
+                if res_custodia_rf_ir.data:
+                    for pos in res_custodia_rf_ir.data:
+                        nome_papel = (pos.get('nome_papel', '') or '').strip().upper()
+                        custodia = _to_float(pos.get('custodia', 0))
+
+                        # Ativos isentos: LCI, LCA, LCD, DEB, CRI, CRA
+                        isento = any(nome_papel.startswith(tipo) for tipo in ['LCI', 'LCA', 'LCD', 'DEB', 'CRI', 'CRA'])
+
+                        if isento:
+                            valores_ir['total_isento'] += custodia
+                        else:
+                            valores_ir['total_tributado'] += custodia
+
+                    total_carteira_rf = valores_ir['total_isento'] + valores_ir['total_tributado']
+                    valores_ir['total_com_ir'] = total_carteira_rf
+                    valores_ir['total_sem_ir'] = valores_ir['total_isento'] + (valores_ir['total_tributado'] * 0.825)
+
+                    if total_carteira_rf > 0:
+                        valores_ir['percentual_isento'] = (valores_ir['total_isento'] / total_carteira_rf) * 100
+                        valores_ir['percentual_tributado'] = (valores_ir['total_tributado'] / total_carteira_rf) * 100
+
+            except Exception as e:
+                current_app.logger.warning(f"Erro ao calcular IR: {e}")
+
+        # ===========================
+        # MAPA DE LIQUIDEZ (IGUAL À FUNÇÃO asset_allocation)
+        # ===========================
+        mapa_liquidez = []
+
+        try:
+            res_fundos_cliente = supabase.table("diversificador")\
+                .select("cnpj_fundo, net")\
+                .eq("user_id", uid)\
+                .eq("cliente", cliente_codigo)\
+                .not_.is_("cnpj_fundo", "null")\
+                .execute()
+
+            if res_fundos_cliente.data:
+                fundos_agrupados = {}
+                for item in res_fundos_cliente.data:
+                    cnpj_str = (item.get('cnpj_fundo') or '').strip()
+                    net = _to_float(item.get('net', 0))
+                    if cnpj_str:
+                        try:
+                            cnpj_int = int(cnpj_str.replace('.', '').replace('/', '').replace('-', ''))
+                            fundos_agrupados[cnpj_int] = fundos_agrupados.get(cnpj_int, 0.0) + net
+                        except (ValueError, AttributeError):
+                            pass
+
+                cnpjs_list = list(fundos_agrupados.keys())
+                if cnpjs_list:
+                    res_mapa = supabase.table("mapa_liquidez")\
+                        .select("*")\
+                        .in_("CNPJ_FUNDO", cnpjs_list)\
+                        .execute()
+
+                    if not res_mapa.data:
+                        cnpjs_str_list = [str(cnpj) for cnpj in cnpjs_list]
+                        res_mapa = supabase.table("mapa_liquidez")\
+                            .select("*")\
+                            .in_("CNPJ_FUNDO", cnpjs_str_list)\
+                            .execute()
+
+                    if res_mapa.data:
+                        for fundo in res_mapa.data:
+                            cnpj = fundo.get('CNPJ_FUNDO', '')
+                            try:
+                                cnpj_int = int(str(cnpj).replace('.', '').replace('/', '').replace('-', ''))
+                                valor_fundo = fundos_agrupados.get(cnpj_int, 0.0)
+                            except (ValueError, AttributeError):
+                                valor_fundo = 0.0
+
+                            mapa_liquidez.append({
+                                'nome_fundo': fundo.get('NOME_FUNDO', 'N/A'),
+                                'cnpj_fundo': str(cnpj),
+                                'classificacao_cvm': fundo.get('CLASSIFICAÇÃO_CVM', 'N/A'),
+                                'resgate_total': fundo.get('RESGATE TOTAL', 0),
+                                'valor': valor_fundo
+                            })
+
+            # Adicionar LFT ao mapa de liquidez
+            try:
+                res_lft = supabase.table("custodia_rf")\
+                    .select("nome_papel, custodia")\
+                    .eq("user_id", uid)\
+                    .eq("cod_conta", str(cliente_codigo))\
+                    .execute()
+
+                if res_lft.data:
+                    total_lft = 0.0
+                    for item in res_lft.data:
+                        nome_papel = (item.get('nome_papel', '') or '').strip().upper()
+                        if nome_papel.startswith('LFT'):
+                            custodia = _to_float(item.get('custodia', 0))
+                            total_lft += custodia
+
+                    if total_lft > 0:
+                        mapa_liquidez.append({
+                            'nome_fundo': 'Tesouro Selic (LFT)',
+                            'cnpj_fundo': 'N/A',
+                            'classificacao_cvm': 'Renda Fixa',
+                            'resgate_total': 0,
+                            'valor': total_lft
+                        })
+
+            except Exception as e:
+                current_app.logger.warning(f"Erro ao buscar LFT: {e}")
+
+            mapa_liquidez.sort(key=lambda x: x['valor'], reverse=True)
+
+        except Exception as e:
+            current_app.logger.warning(f"Erro ao buscar mapa de liquidez: {e}")
+
+        # ===========================
+        # CRIAR PDF
+        # ===========================
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
+                               rightMargin=1.5*cm, leftMargin=1.5*cm,
+                               topMargin=1.5*cm, bottomMargin=1.5*cm)
+
+        # Estilos Modernos
+        styles = getSampleStyleSheet()
+
+        # Paleta de cores moderna
+        PRIMARY_COLOR = colors.HexColor('#6366F1')      # Indigo vibrante
+        SECONDARY_COLOR = colors.HexColor('#8B5CF6')    # Roxo
+        ACCENT_COLOR = colors.HexColor('#10B981')       # Verde esmeralda
+        DARK_TEXT = colors.HexColor('#111827')          # Quase preto
+        LIGHT_TEXT = colors.HexColor('#6B7280')         # Cinza médio
+        BACKGROUND_LIGHT = colors.HexColor('#F9FAFB')   # Cinza clarissimo
+
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=PRIMARY_COLOR,
+            spaceAfter=20,
+            spaceBefore=10,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold',
+            leading=28
+        )
+
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=DARK_TEXT,
+            spaceAfter=12,
+            spaceBefore=16,
+            fontName='Helvetica-Bold',
+            borderWidth=0,
+            borderPadding=8,
+            backColor=BACKGROUND_LIGHT,
+            borderRadius=4
+        )
+
+        subheading_style = ParagraphStyle(
+            'CustomSubHeading',
+            parent=styles['Heading3'],
+            fontSize=13,
+            textColor=SECONDARY_COLOR,
+            spaceAfter=8,
+            spaceBefore=10,
+            fontName='Helvetica-Bold'
+        )
+
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=LIGHT_TEXT,
+            fontName='Helvetica'
+        )
+
+        elements = []
+
+        # ===========================
+        # FUNÇÃO AUXILIAR PARA CRIAR GRÁFICOS
+        # ===========================
+        def criar_donut_chart(dados, largura=500, altura=350):
+            """Cria um gráfico de donut moderno com os dados fornecidos"""
+            drawing = Drawing(largura, altura)
+
+            pie = Pie()
+            pie.x = 100
+            pie.y = 75
+            pie.width = 180
+            pie.height = 180
+            pie.data = [d['valor'] for d in dados]
+            pie.labels = None  # Remover labels direto do gráfico
+            pie.slices.strokeWidth = 2
+            pie.slices.strokeColor = colors.white
+            pie.innerRadiusFraction = 0.5  # Criar efeito donut
+
+            # Paleta moderna e vibrante
+            cores_modernas = [
+                colors.HexColor('#3B82F6'),  # Azul moderno - Pós-fixado
+                colors.HexColor('#8B5CF6'),  # Roxo vibrante - Prefixado
+                colors.HexColor('#F59E0B'),  # Âmbar - Inflação
+                colors.HexColor('#06B6D4')   # Ciano - Internacional
+            ]
+
+            for i, cor in enumerate(cores_modernas[:len(dados)]):
+                pie.slices[i].fillColor = cor
+                pie.slices[i].popout = 3  # Leve separação entre fatias
+
+            # Legenda moderna
+            legend = Legend()
+            legend.x = 320
+            legend.y = 180
+            legend.dx = 12
+            legend.dy = 12
+            legend.fontName = 'Helvetica-Bold'
+            legend.fontSize = 10
+            legend.boxAnchor = 'w'
+            legend.columnMaximum = 10
+            legend.strokeWidth = 0
+            legend.deltax = 100
+            legend.deltay = 15
+            legend.autoXPadding = 8
+            legend.yGap = 5
+            legend.dxTextSpace = 8
+            legend.alignment = 'left'
+
+            legend.colorNamePairs = [(pie.slices[i].fillColor, (d['label'], f"R$ {d['valor']:,.0f} ({d['percentual']:.1f}%)"))
+                                    for i, d in enumerate(dados)]
+
+            drawing.add(pie)
+            drawing.add(legend)
+
+            return drawing
+
+        def criar_bar_chart_horizontal(dados, largura=600, altura=300, cor=None):
+            """Cria um gráfico de barras horizontais moderno"""
+            drawing = Drawing(largura, altura)
+
+            bc = HorizontalBarChart()
+            bc.x = 120
+            bc.y = 60
+            bc.height = 180
+            bc.width = 420
+            bc.data = [dados]
+            bc.strokeColor = colors.white
+            bc.strokeWidth = 2
+            bc.valueAxis.valueMin = 0
+            bc.valueAxis.valueMax = max(dados) * 1.15 if dados else 100
+            bc.valueAxis.valueStep = max(dados) / 5 if dados else 20
+            bc.valueAxis.labels.fontName = 'Helvetica'
+            bc.valueAxis.labels.fontSize = 9
+            bc.valueAxis.labels.fillColor = LIGHT_TEXT
+            bc.categoryAxis.labels.boxAnchor = 'e'
+            bc.categoryAxis.labels.dx = -8
+            bc.categoryAxis.labels.dy = 0
+            bc.categoryAxis.labels.fontName = 'Helvetica-Bold'
+            bc.categoryAxis.labels.fontSize = 10
+            bc.categoryAxis.labels.fillColor = DARK_TEXT
+
+            # Define a cor das barras com gradiente visual
+            if cor:
+                bc.bars.fillColor = cor
+            else:
+                bc.bars.fillColor = colors.HexColor('#8B5CF6')
+
+            drawing.add(bc)
+
+            return drawing
+
+        def criar_bar_chart_comparativo(valor_bruto, valor_liquido, largura=600, altura=250):
+            """Cria gráfico comparativo moderno entre valor bruto e líquido"""
+            drawing = Drawing(largura, altura)
+
+            bc = HorizontalBarChart()
+            bc.x = 140
+            bc.y = 80
+            bc.height = 120
+            bc.width = 400
+            bc.data = [[valor_bruto], [valor_liquido]]
+            bc.strokeColor = colors.white
+            bc.strokeWidth = 2
+            bc.valueAxis.valueMin = 0
+            bc.valueAxis.valueMax = max(valor_bruto, valor_liquido) * 1.15
+            bc.valueAxis.valueStep = max(valor_bruto, valor_liquido) / 5
+            bc.valueAxis.labels.fontName = 'Helvetica'
+            bc.valueAxis.labels.fontSize = 9
+            bc.valueAxis.labels.fillColor = LIGHT_TEXT
+            bc.categoryAxis.categoryNames = ['Bruto', 'Líquido']
+            bc.categoryAxis.labels.boxAnchor = 'e'
+            bc.categoryAxis.labels.dx = -8
+            bc.categoryAxis.labels.fontName = 'Helvetica-Bold'
+            bc.categoryAxis.labels.fontSize = 11
+            bc.categoryAxis.labels.fillColor = DARK_TEXT
+
+            # Cores vibrantes: Indigo para bruto, Verde esmeralda para líquido
+            bc.bars[0].fillColor = colors.HexColor('#6366F1')
+            bc.bars[1].fillColor = colors.HexColor('#10B981')
+
+            drawing.add(bc)
+
+            return drawing
+
+        def criar_estilo_tabela_moderno(cor_header=None):
+            """Cria um estilo de tabela moderno com zebra striping"""
+            if not cor_header:
+                cor_header = PRIMARY_COLOR
+
+            return TableStyle([
+                # Cabeçalho
+                ('BACKGROUND', (0, 0), (-1, 0), cor_header),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('TOPPADDING', (0, 0), (-1, 0), 12),
+
+                # Corpo da tabela
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('TEXTCOLOR', (0, 1), (-1, -1), DARK_TEXT),
+                ('TOPPADDING', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+
+                # Zebra striping moderno
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, BACKGROUND_LIGHT]),
+
+                # Bordas suaves
+                ('LINEBELOW', (0, 0), (-1, 0), 2, cor_header),
+                ('LINEBELOW', (0, 1), (-1, -2), 0.5, colors.HexColor('#E5E7EB')),
+                ('LINEBELOW', (0, -1), (-1, -1), 1.5, colors.HexColor('#D1D5DB')),
+
+                # Grid interno suave
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+            ])
+
+        def criar_card_metrica(titulo, valor, cor_destaque=None):
+            """Cria um card visual para métricas importantes"""
+            if not cor_destaque:
+                cor_destaque = PRIMARY_COLOR
+
+            card_style = TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), BACKGROUND_LIGHT),
+                ('LINEABOVE', (0, 0), (-1, 0), 3, cor_destaque),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ])
+
+            titulo_style = ParagraphStyle(
+                'CardTitulo',
+                parent=styles['Normal'],
+                fontSize=9,
+                textColor=LIGHT_TEXT,
+                alignment=TA_CENTER,
+                fontName='Helvetica'
+            )
+
+            valor_style = ParagraphStyle(
+                'CardValor',
+                parent=styles['Normal'],
+                fontSize=14,
+                textColor=cor_destaque,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold',
+                spaceAfter=0
+            )
+
+            data = [
+                [Paragraph(titulo, titulo_style)],
+                [Paragraph(valor, valor_style)]
+            ]
+
+            card = Table(data, colWidths=[4.5*cm])
+            card.setStyle(card_style)
+            return card
+
+        # TÍTULO E CABEÇALHO
+        elements.append(Paragraph(f"<b>Asset Allocation</b>", title_style))
+        elements.append(Spacer(1, 0.3*cm))
+
+        # Informações do cliente em estilo moderno
+        info_cliente_style = ParagraphStyle(
+            'InfoCliente',
+            parent=styles['Normal'],
+            fontSize=11,
+            textColor=DARK_TEXT,
+            alignment=TA_CENTER,
+            fontName='Helvetica'
+        )
+        elements.append(Paragraph(f"<b>Cliente:</b> {cliente_nome} | <b>Gerado em:</b> {datetime.now().strftime('%d/%m/%Y às %H:%M')}", info_cliente_style))
+        elements.append(Spacer(1, 1*cm))
+
+        # ===========================
+        # PÁGINA 1: EXPOSIÇÃO RENDA FIXA (CARDS + DONUT CHART + TABELA)
+        # ===========================
+        if exposicao_rf and exposicao_rf.get('total_rf', 0) > 0:
+            elements.append(Paragraph("Exposição Renda Fixa por Indexador", heading_style))
+            elements.append(Spacer(1, 0.5*cm))
+
+            # Cards visuais com métricas principais
+            cards_metricas = [
+                [
+                    criar_card_metrica("Total RF", f"R$ {exposicao_rf['total_rf']:,.0f}", colors.HexColor('#3B82F6')),
+                    criar_card_metrica("Pós-fixado", f"{exposicao_rf['pos_fixado']['percentual']:.1f}%", colors.HexColor('#3B82F6')),
+                    criar_card_metrica("Prefixado", f"{exposicao_rf['pre_fixado']['percentual']:.1f}%", colors.HexColor('#8B5CF6')),
+                    criar_card_metrica("Inflação", f"{exposicao_rf['inflacao']['percentual']:.1f}%", colors.HexColor('#F59E0B'))
+                ]
+            ]
+
+            cards_table = Table(cards_metricas, colWidths=[4.5*cm, 4.5*cm, 4.5*cm, 4.5*cm])
+            cards_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 5),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            elements.append(cards_table)
+            elements.append(Spacer(1, 0.8*cm))
+
+            # Preparar dados para o donut chart
+            dados_donut = []
+            if exposicao_rf['pos_fixado']['total'] > 0:
+                dados_donut.append({
+                    'label': 'Pós-fixado',
+                    'valor': exposicao_rf['pos_fixado']['total'],
+                    'percentual': exposicao_rf['pos_fixado']['percentual']
+                })
+            if exposicao_rf['pre_fixado']['total'] > 0:
+                dados_donut.append({
+                    'label': 'Prefixado',
+                    'valor': exposicao_rf['pre_fixado']['total'],
+                    'percentual': exposicao_rf['pre_fixado']['percentual']
+                })
+            if exposicao_rf['inflacao']['total'] > 0:
+                dados_donut.append({
+                    'label': 'Inflação',
+                    'valor': exposicao_rf['inflacao']['total'],
+                    'percentual': exposicao_rf['inflacao']['percentual']
+                })
+            if exposicao_rf['internacional']['total'] > 0:
+                dados_donut.append({
+                    'label': 'Internacional',
+                    'valor': exposicao_rf['internacional']['total'],
+                    'percentual': exposicao_rf['internacional']['percentual']
+                })
+
+            # Adicionar gráfico donut
+            if dados_donut:
+                donut = criar_donut_chart(dados_donut)
+                elements.append(donut)
+                elements.append(Spacer(1, 0.8*cm))
+
+            # Cards dos 4 indexadores principais
+            data_cards = [
+                ['Indexador', 'Valor (R$)', '% Carteira', 'Taxa Media'],
+                [
+                    'Pos-fixado',
+                    f"R$ {exposicao_rf['pos_fixado']['total']:,.2f}",
+                    f"{exposicao_rf['pos_fixado']['percentual']:.1f}%",
+                    f"{exposicao_rf['pos_fixado']['taxa_ponderada']:.2f}% CDI"
+                ],
+                [
+                    'Prefixado',
+                    f"R$ {exposicao_rf['pre_fixado']['total']:,.2f}",
+                    f"{exposicao_rf['pre_fixado']['percentual']:.1f}%",
+                    f"{exposicao_rf['pre_fixado']['taxa_ponderada']:.2f}% a.a."
+                ],
+                [
+                    'Inflacao',
+                    f"R$ {exposicao_rf['inflacao']['total']:,.2f}",
+                    f"{exposicao_rf['inflacao']['percentual']:.1f}%",
+                    f"IPCA + {exposicao_rf['inflacao']['taxa_ponderada']:.2f}%"
+                ],
+                [
+                    'Internacional',
+                    f"R$ {exposicao_rf['internacional']['total']:,.2f}",
+                    f"{exposicao_rf['internacional']['percentual']:.1f}%",
+                    f"{exposicao_rf['internacional']['taxa_ponderada']:.2f}%"
+                ]
+            ]
+
+            table = Table(data_cards, colWidths=[5*cm, 5*cm, 4*cm, 5*cm])
+            table.setStyle(criar_estilo_tabela_moderno(colors.HexColor('#10B981')))
+            elements.append(table)
+
+        # ===========================
+        # PÁGINA 2: GRÁFICO COMPARATIVO BRUTO VS LÍQUIDO + IMPACTO DO IR
+        # ===========================
+        if valores_ir and valores_ir.get('total_com_ir', 0) > 0:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Comparativo: Valor Bruto vs Líquido", heading_style))
+            elements.append(Spacer(1, 0.5*cm))
+
+            # Cards de métricas do IR
+            impacto_ir = valores_ir['total_com_ir'] - valores_ir['total_sem_ir']
+            cards_ir = [
+                [
+                    criar_card_metrica("Valor Bruto", f"R$ {valores_ir['total_com_ir']:,.0f}", colors.HexColor('#6366F1')),
+                    criar_card_metrica("Valor Líquido", f"R$ {valores_ir['total_sem_ir']:,.0f}", ACCENT_COLOR),
+                    criar_card_metrica("Impacto IR", f"R$ {impacto_ir:,.0f}", colors.HexColor('#EF4444')),
+                    criar_card_metrica("% Isento", f"{valores_ir['percentual_isento']:.1f}%", colors.HexColor('#10B981'))
+                ]
+            ]
+
+            cards_ir_table = Table(cards_ir, colWidths=[4.5*cm, 4.5*cm, 4.5*cm, 4.5*cm])
+            cards_ir_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 5),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            elements.append(cards_ir_table)
+            elements.append(Spacer(1, 0.8*cm))
+
+            # Adicionar gráfico comparativo
+            grafico_comparativo = criar_bar_chart_comparativo(
+                valores_ir['total_com_ir'],
+                valores_ir['total_sem_ir']
+            )
+            elements.append(grafico_comparativo)
+            elements.append(Spacer(1, 0.8*cm))
+
+            # Tabela de impacto do IR
+            elements.append(Paragraph("Detalhamento do Imposto de Renda", subheading_style))
+            elements.append(Spacer(1, 0.3*cm))
+
+            data = [
+                ['Metrica', 'Valor'],
+                ['Valor Bruto', f"R$ {valores_ir['total_com_ir']:,.2f}"],
+                ['Valor Liquido Estimado (IR 17.5%)', f"R$ {valores_ir['total_sem_ir']:,.2f}"],
+                ['Impacto do IR', f"R$ {(valores_ir['total_com_ir'] - valores_ir['total_sem_ir']):,.2f}"],
+                ['Ativos Isentos', f"R$ {valores_ir['total_isento']:,.2f} ({valores_ir['percentual_isento']:.1f}%)"],
+                ['Ativos Tributados', f"R$ {valores_ir['total_tributado']:,.2f} ({valores_ir['percentual_tributado']:.1f}%)"],
+            ]
+
+            table = Table(data, colWidths=[10*cm, 8*cm])
+            table.setStyle(criar_estilo_tabela_moderno(colors.HexColor('#EF4444')))
+            elements.append(table)
+
+        # ===========================
+        # PÁGINA 3: ATIVOS ABAIXO DA MÉDIA
+        # ===========================
+        if exposicao_rf and exposicao_rf.get('ativos_abaixo_media'):
+            tem_ativos_abaixo = any(len(ativos) > 0 for ativos in exposicao_rf['ativos_abaixo_media'].values())
+
+            if tem_ativos_abaixo:
+                elements.append(PageBreak())
+                elements.append(Paragraph("Ativos Abaixo da Média", heading_style))
+                elements.append(Spacer(1, 0.5*cm))
+
+                for categoria, label in [('pos_fixado', 'Pos-fixado'), ('pre_fixado', 'Prefixado'),
+                                        ('inflacao', 'Inflacao'), ('internacional', 'Internacional')]:
+                    ativos = exposicao_rf['ativos_abaixo_media'].get(categoria, [])
+                    if ativos:
+                        elements.append(Paragraph(f"<b>{label}</b>", subheading_style))
+
+                        data = [['Ativo', 'Taxa', 'Media', 'Diferenca', 'Valor (R$)']]
+                        for ativo in ativos[:10]:
+                            data.append([
+                                ativo['nome'][:40],
+                                f"{ativo['taxa']:.2f}%",
+                                f"{ativo['taxa_media']:.2f}%",
+                                f"-{ativo['diferenca']:.2f}%",
+                                f"R$ {ativo['custodia']:,.2f}"
+                            ])
+
+                        table = Table(data, colWidths=[7*cm, 3*cm, 3*cm, 3*cm, 3*cm])
+                        table.setStyle(criar_estilo_tabela_moderno(colors.HexColor('#F59E0B')))
+                        elements.append(table)
+                        elements.append(Spacer(1, 0.4*cm))
+
+        # ===========================
+        # PÁGINA 4: EXPOSIÇÃO POR TIPO DE ATIVO
+        # ===========================
+        if exposicao_por_tipo and exposicao_por_tipo.get('total_geral', 0) > 0:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Exposição por Tipo de Ativo", heading_style))
+            elements.append(Spacer(1, 0.5*cm))
+
+            # Tabela resumo
+            data_resumo = [
+                ['Tipo', 'Valor (R$)', '% Carteira Total', '% Renda Fixa'],
+                [
+                    'Emissao Bancaria',
+                    f"R$ {exposicao_por_tipo['emissao_bancaria']['total']:,.2f}",
+                    f"{exposicao_por_tipo['emissao_bancaria']['percentual']:.1f}%",
+                    f"{exposicao_por_tipo['emissao_bancaria']['percentual_rf']:.1f}%"
+                ],
+                [
+                    'Credito Privado',
+                    f"R$ {exposicao_por_tipo['credito_privado']['total']:,.2f}",
+                    f"{exposicao_por_tipo['credito_privado']['percentual']:.1f}%",
+                    f"{exposicao_por_tipo['credito_privado']['percentual_rf']:.1f}%"
+                ],
+                [
+                    'Titulo Publico',
+                    f"R$ {exposicao_por_tipo['titulo_publico']['total']:,.2f}",
+                    f"{exposicao_por_tipo['titulo_publico']['percentual']:.1f}%",
+                    f"{exposicao_por_tipo['titulo_publico']['percentual_rf']:.1f}%"
+                ]
+            ]
+
+            table = Table(data_resumo, colWidths=[6*cm, 5*cm, 4*cm, 4*cm])
+            table.setStyle(criar_estilo_tabela_moderno(SECONDARY_COLOR))
+            elements.append(table)
+            elements.append(Spacer(1, 0.6*cm))
+
+        # ===========================
+        # PÁGINA 5: DISTRIBUIÇÃO POR VENCIMENTO
+        # ===========================
+        if credito_privado_vencimentos:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Distribuicao por Vencimento", heading_style))
+
+            # Preparar dados para o gráfico de barras
+            dados_valores = [item['total'] for item in credito_privado_vencimentos[:10]]
+            anos_labels = [item['label'] for item in credito_privado_vencimentos[:10]]
+
+            # Adicionar gráfico de barras horizontais
+            if dados_valores:
+                drawing = Drawing(500, max(250, len(dados_valores) * 30))
+                bc = HorizontalBarChart()
+                bc.x = 100
+                bc.y = 50
+                bc.height = max(150, len(dados_valores) * 25)
+                bc.width = 350
+                bc.data = [dados_valores]
+                bc.strokeColor = colors.black
+                bc.valueAxis.valueMin = 0
+                bc.valueAxis.valueMax = max(dados_valores) * 1.1 if dados_valores else 100
+                bc.categoryAxis.categoryNames = anos_labels
+                bc.categoryAxis.labels.boxAnchor = 'e'
+                bc.categoryAxis.labels.dx = -5
+                bc.categoryAxis.labels.dy = 0
+                bc.categoryAxis.labels.fontName = 'Helvetica'
+                bc.categoryAxis.labels.fontSize = 9
+
+                # Cor roxa para vencimentos
+                bc.bars.fillColor = colors.HexColor('#A855F7')
+
+                drawing.add(bc)
+                elements.append(drawing)
+                elements.append(Spacer(1, 0.8*cm))
+
+            # Tabela detalhada de vencimentos
+            elements.append(Paragraph("Detalhamento por Ano", subheading_style))
+            elements.append(Spacer(1, 0.3*cm))
+            data = [['Ano', 'Valor (R$)', 'Qtd Ativos', '% Carteira']]
+            for item in credito_privado_vencimentos[:10]:
+                data.append([
+                    item['label'],
+                    f"R$ {item['total']:,.2f}",
+                    str(item['count']),
+                    f"{item['percentual_carteira']:.1f}%"
+                ])
+
+            table = Table(data, colWidths=[4*cm, 5*cm, 4*cm, 4*cm])
+            table.setStyle(criar_estilo_tabela_moderno(SECONDARY_COLOR))
+            elements.append(table)
+
+        # ===========================
+        # PÁGINA 6: EXPOSIÇÃO POR EMISSOR
+        # ===========================
+        if credito_privado_emissores:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Exposição por Emissor (Top 10)", heading_style))
+            elements.append(Spacer(1, 0.5*cm))
+
+            data = [['Emissor', 'Valor (R$)', 'Qtd', '% Carteira', 'Alerta FGC']]
+            for item in credito_privado_emissores:
+                alerta = 'Sim' if item.get('acima_fgc', False) else '-'
+                data.append([
+                    item['nome'][:35],
+                    f"R$ {item['total']:,.2f}",
+                    str(item['count']),
+                    f"{item['percentual_carteira']:.1f}%",
+                    alerta
+                ])
+
+            table = Table(data, colWidths=[6*cm, 4*cm, 2*cm, 3*cm, 3*cm])
+            table.setStyle(criar_estilo_tabela_moderno(ACCENT_COLOR))
+            elements.append(table)
+
+        # ===========================
+        # PÁGINA 7: MAPA DE LIQUIDEZ
+        # ===========================
+        if mapa_liquidez:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Mapa de Liquidez dos Fundos", heading_style))
+            elements.append(Spacer(1, 0.3*cm))
+            elements.append(Paragraph(f"Total de fundos: {len(mapa_liquidez)}", normal_style))
+            elements.append(Spacer(1, 0.4*cm))
+            elements.append(Spacer(1, 0.3*cm))
+
+            data = [['Fundo', 'Valor (R$)', 'Prazo Resgate']]
+            for item in mapa_liquidez[:20]:
+                resgate = item.get('resgate_total', 0)
+                if resgate == 0:
+                    prazo = 'D+0'
+                elif resgate == 1:
+                    prazo = 'D+1'
+                elif resgate == 2:
+                    prazo = 'D+2'
+                else:
+                    prazo = f'D+{resgate}'
+
+                data.append([
+                    item['nome_fundo'][:55],
+                    f"R$ {item['valor']:,.2f}",
+                    prazo
+                ])
+
+            table = Table(data, colWidths=[12*cm, 4*cm, 3*cm])
+            estilo_mapa = criar_estilo_tabela_moderno(colors.HexColor('#06B6D4'))
+            estilo_mapa.add('ALIGN', (2, 0), (-1, -1), 'CENTER')
+            table.setStyle(estilo_mapa)
+            elements.append(table)
+
+        # Construir PDF
+        doc.build(elements)
+
+        # Preparar resposta
+        buffer.seek(0)
+        response = make_response(buffer.getvalue())
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'inline; filename=asset_allocation_{cliente_codigo}.pdf'
+
+        return response
+
+    except Exception as e:
+        current_app.logger.exception("Erro ao gerar PDF do Asset Allocation")
+        flash(f"Erro ao gerar PDF: {str(e)}", "error")
+        return redirect(url_for('clientes.asset_allocation', cliente=cliente_codigo))

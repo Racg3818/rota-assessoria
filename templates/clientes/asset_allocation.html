@@ -96,12 +96,24 @@
   <!-- 💰 EXPOSIÇÃO RENDA FIXA (NOVO) -->
   {% if exposicao_rf and exposicao_rf.total_rf and exposicao_rf.total_rf > 0 %}
   <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 p-6">
-    <div class="flex items-center gap-3 mb-6">
-      <span class="text-3xl">💰</span>
-      <div>
-        <h2 class="text-2xl font-bold text-gray-800">Exposição Renda Fixa</h2>
-        <p class="text-sm text-gray-600">Distribuição por tipo de indexador</p>
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        <span class="text-3xl">💰</span>
+        <div>
+          <h2 class="text-2xl font-bold text-gray-800">Exposição Renda Fixa</h2>
+          <p class="text-sm text-gray-600">Distribuição por tipo de indexador</p>
+        </div>
       </div>
+
+      <!-- Botão Exportar PDF -->
+      <a href="{{ url_for('clientes.asset_allocation_pdf', cliente=cliente_selecionado) }}"
+         target="_blank"
+         class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors shadow-lg flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Exportar PDF
+      </a>
     </div>
 
     <!-- Grid de Cards RF -->
@@ -287,6 +299,171 @@
               <div class="text-xs text-gray-600">{{ exposicao_rf.internacional.total|brl }}</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
+  <!-- 💸 IMPACTO DO IMPOSTO DE RENDA (NOVO) -->
+  {% if valores_ir and valores_ir.total_com_ir > 0 %}
+  <div class="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border-2 border-emerald-200 p-6">
+    <div class="flex items-center gap-3 mb-6">
+      <span class="text-3xl">💸</span>
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Impacto do Imposto de Renda</h2>
+        <p class="text-sm text-gray-600">Comparação entre valor bruto e líquido da carteira</p>
+      </div>
+    </div>
+
+    <!-- Grid de Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+      <!-- Card Valor Bruto (Com IR a pagar) -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-blue-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">📊</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Valor Bruto</h3>
+            <p class="text-xs text-gray-500">Total da carteira</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-blue-600">{{ valores_ir.total_com_ir|brl }}</div>
+          <div class="text-xs text-gray-600 mt-1">Valor atual dos ativos</div>
+        </div>
+      </div>
+
+      <!-- Card Valor Líquido Estimado (Após IR) -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-emerald-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">💰</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Valor Líquido Estimado</h3>
+            <p class="text-xs text-gray-500">Após IR (17,5% médio)</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-emerald-600">{{ valores_ir.total_sem_ir|brl }}</div>
+          <div class="text-xs text-gray-600 mt-1">Valor após tributação</div>
+        </div>
+      </div>
+
+      <!-- Card Impacto do IR -->
+      <div class="bg-white rounded-xl shadow-lg p-6 border border-amber-200 hover:shadow-xl transition-shadow">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
+            <span class="text-2xl">⚠️</span>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-medium text-gray-600">Impacto do IR</h3>
+            <p class="text-xs text-gray-500">Tributação estimada</p>
+          </div>
+        </div>
+        <div class="mb-4">
+          <div class="text-3xl font-bold text-amber-600">{{ (valores_ir.total_com_ir - valores_ir.total_sem_ir)|brl }}</div>
+          <div class="text-xs text-gray-600 mt-1">Diferença bruto vs líquido</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Detalhamento de Ativos Isentos vs Tributados -->
+    <div class="bg-white rounded-xl shadow-lg p-6 border border-emerald-200">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+          <span class="text-xl">📋</span>
+        </div>
+        <div class="flex-1">
+          <h3 class="text-xl font-bold text-gray-800">Composição da Carteira por Tributação</h3>
+          <p class="text-sm text-gray-600">Distribuição entre ativos isentos e tributados</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <!-- Ativos Isentos -->
+        <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border-2 border-green-200">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-green-500 rounded-xl flex items-center justify-center">
+              <span class="text-xl text-white">✓</span>
+            </div>
+            <div>
+              <h4 class="text-base font-bold text-gray-800">Ativos Isentos de IR</h4>
+              <p class="text-xs text-gray-600">LCI, LCA, LCD, DEB, CRI, CRA</p>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="text-3xl font-bold text-green-600">{{ valores_ir.total_isento|brl }}</div>
+            <div class="text-sm text-gray-600 mt-1">{{ "%.1f"|format(valores_ir.percentual_isento) }}% da carteira</div>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3">
+            <div class="bg-gradient-to-r from-green-400 to-green-600 h-3 rounded-full transition-all duration-500"
+                 style="width: {{ valores_ir.percentual_isento }}%"></div>
+          </div>
+        </div>
+
+        <!-- Ativos Tributados -->
+        <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-5 border-2 border-amber-200">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+              <span class="text-xl text-white">⚡</span>
+            </div>
+            <div>
+              <h4 class="text-base font-bold text-gray-800">Ativos Tributados</h4>
+              <p class="text-xs text-gray-600">CDB, Títulos Públicos, etc.</p>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="text-3xl font-bold text-amber-600">{{ valores_ir.total_tributado|brl }}</div>
+            <div class="text-sm text-gray-600 mt-1">{{ "%.1f"|format(valores_ir.percentual_tributado) }}% da carteira</div>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-3">
+            <div class="bg-gradient-to-r from-amber-400 to-amber-600 h-3 rounded-full transition-all duration-500"
+                 style="width: {{ valores_ir.percentual_tributado }}%"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Gráfico Comparativo -->
+    <div class="bg-white rounded-xl shadow-lg p-6 border border-emerald-200 mt-6">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+          <span class="text-xl">📈</span>
+        </div>
+        <div class="flex-1">
+          <h3 class="text-xl font-bold text-gray-800">Gráfico Comparativo: Valor Bruto vs Líquido</h3>
+          <p class="text-sm text-gray-600">Visualização do impacto do Imposto de Renda</p>
+        </div>
+      </div>
+
+      <div class="flex flex-col items-center">
+        <div class="w-full max-w-lg">
+          <canvas id="chartImpactoIR"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Observação -->
+    <div class="bg-blue-50 rounded-xl border-2 border-blue-200 p-4 mt-6">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">ℹ️</span>
+        <div class="flex-1">
+          <h4 class="text-sm font-bold text-blue-900 mb-2">Informação Importante</h4>
+          <p class="text-xs text-blue-800">
+            <strong>Ativos isentos de IR:</strong> LCI, LCA, LCD, DEB, CRI e CRA não possuem tributação de Imposto de Renda na fonte.
+          </p>
+          <p class="text-xs text-blue-800 mt-2">
+            <strong>Ativos tributados:</strong> Para os demais ativos (CDB, Títulos Públicos, etc.), foi aplicada uma alíquota média de <strong>17,5%</strong>
+            referente à tabela regressiva de IR (prazo acima de 720 dias). O valor líquido é uma <strong>estimativa</strong> e pode variar conforme o prazo real de cada aplicação.
+          </p>
         </div>
       </div>
     </div>
@@ -1232,6 +1409,116 @@
       };
 
       new Chart(ctxIndexadores, indexadoresConfig);
+      {% endif %}
+    }
+
+    // Gráfico de Impacto do IR
+    const ctxIR = document.getElementById('chartImpactoIR');
+    if (ctxIR) {
+      {% if valores_ir and valores_ir.total_com_ir > 0 %}
+      const irData = {
+        labels: ['Valor Bruto', 'Valor Líquido Estimado'],
+        datasets: [{
+          label: 'Valor (R$)',
+          data: [
+            {{ valores_ir.total_com_ir }},
+            {{ valores_ir.total_sem_ir }}
+          ],
+          backgroundColor: [
+            'rgba(59, 130, 246, 0.8)',    // Blue-500 (Bruto)
+            'rgba(16, 185, 129, 0.8)'     // Emerald-500 (Líquido)
+          ],
+          borderColor: [
+            'rgb(37, 99, 235)',           // Blue-600
+            'rgb(5, 150, 105)'            // Emerald-600
+          ],
+          borderWidth: 3,
+          borderRadius: 12,
+          hoverBackgroundColor: [
+            'rgba(37, 99, 235, 0.9)',
+            'rgba(5, 150, 105, 0.9)'
+          ]
+        }]
+      };
+
+      const irConfig = {
+        type: 'bar',
+        data: irData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const value = context.parsed.y || 0;
+                  return 'R$ ' + formatarValorBR(value);
+                },
+                afterLabel: function(context) {
+                  // Adicionar informação extra
+                  if (context.dataIndex === 0) {
+                    return 'Total da carteira';
+                  } else {
+                    const diferenca = {{ valores_ir.total_com_ir - valores_ir.total_sem_ir }};
+                    return 'IR estimado: R$ ' + formatarValorBR(diferenca);
+                  }
+                }
+              },
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              titleColor: 'white',
+              bodyColor: 'white',
+              padding: 14,
+              cornerRadius: 10,
+              displayColors: true,
+              boxWidth: 12,
+              boxHeight: 12,
+              bodyFont: {
+                size: 13
+              },
+              titleFont: {
+                size: 14,
+                weight: 'bold'
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return 'R$ ' + (value / 1000).toFixed(0) + 'k';
+                },
+                font: {
+                  size: 12
+                }
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            x: {
+              ticks: {
+                font: {
+                  size: 13,
+                  weight: '600'
+                }
+              },
+              grid: {
+                display: false
+              }
+            }
+          },
+          animation: {
+            duration: 1200,
+            easing: 'easeInOutQuart'
+          }
+        }
+      };
+
+      new Chart(ctxIR, irConfig);
       {% endif %}
     }
   });
