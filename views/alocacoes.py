@@ -238,6 +238,10 @@ def _calcular_receitas_dashboard(cliente_id_filter=None):
             result['totais_por_status'][status] += valor
             result['receitas_por_status'][status] += rec_escr
 
+            # DEBUG: Log para verificar cálculo de receitas
+            if status in ['mapeado', 'apresentado', 'push_enviado']:
+                current_app.logger.info(f"DEBUG RECEITA: Status={status}, Valor={valor:,.2f}, ROA={roa_pct}%, RecEscr={rec_escr:,.2f}, Acum={result['receitas_por_status'][status]:,.2f}")
+
             # Receitas só para confirmados (receita efetiva)
             if status == "confirmado":
                 result['total_rec_escritorio'] += rec_escr

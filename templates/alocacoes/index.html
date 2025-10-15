@@ -376,33 +376,6 @@
       <div class="text-xs text-green-500">Confirmado</div>
     </div>
   </div>
-
-  <!-- Receitas Estimadas -->
-  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-    <div class="border rounded-lg p-3 bg-gray-100">
-      <div class="text-xs text-gray-600">Receita Estimada</div>
-      <div class="text-lg font-semibold text-gray-800 receita-estimada-card" data-status="mapeado">{{ receitas_por_status.mapeado|brl }}</div>
-      <div class="text-xs text-gray-500">Potencial</div>
-    </div>
-
-    <div class="border rounded-lg p-3 bg-blue-100">
-      <div class="text-xs text-blue-600">Receita Estimada</div>
-      <div class="text-lg font-semibold text-blue-800 receita-estimada-card" data-status="apresentado">{{ receitas_por_status.apresentado|brl }}</div>
-      <div class="text-xs text-blue-500">Potencial</div>
-    </div>
-
-    <div class="border rounded-lg p-3 bg-yellow-100">
-      <div class="text-xs text-yellow-600">Receita Estimada</div>
-      <div class="text-lg font-semibold text-yellow-800 receita-estimada-card" data-status="push_enviado">{{ receitas_por_status.push_enviado|brl }}</div>
-      <div class="text-xs text-yellow-500">Potencial</div>
-    </div>
-
-    <div class="border rounded-lg p-3 bg-green-100">
-      <div class="text-xs text-green-600">Receita Estimada</div>
-      <div class="text-lg font-semibold text-green-800 receita-estimada-card" data-status="confirmado">{{ receitas_por_status.confirmado|brl }}</div>
-      <div class="text-xs text-green-500">Efetiva</div>
-    </div>
-  </div>
 </div>
 
 <!-- Kanban View -->
@@ -437,11 +410,15 @@
              draggable="true"
              ondragstart="drag(event)"
              data-id="{{ item.id }}"
-             data-status="{{ item.status }}"
+             data-status="{{ status }}"
              data-valor="{{ item.valor or 0 }}"
              data-receita-escritorio="{{ item.receita_escritorio or 0 }}"
              data-produto-id="{{ item.produto.id if item.produto else '' }}"
              data-cliente-nome="{{ item.cliente.nome if item.cliente else '' }}"
+             data-roa-pct="{{ item.produto.roa_pct or 0 }}"
+             data-repasse="{{ item.cliente.repasse or 35 }}"
+             data-modelo="{{ item.cliente.modelo or '' }}"
+             data-classe="{{ item.produto.classe or '' }}"
              style="transition: opacity 0.3s ease, background-color 0.5s ease;">
           <div class="text-sm font-medium mb-1">{{ item.cliente.nome }}</div>
           <div class="text-xs text-gray-600 mb-2">{{ item.produto.nome }}</div>
@@ -768,6 +745,65 @@ function updateColumnCounts() {
   });
 }
 
+// Funções auxiliares para cálculo de receita (replicam a lógica Python)
+function normModelo(v) {
+  if (!v) return '';
+  return String(v).trim().toUpperCase().replace(/\s+/g, '_');
+}
+
+function normClasse(v) {
+  if (!v) return '';
+  return String(v).trim().toUpperCase();
+}
+
+function podeTerReceitaEscritorio(modelo, classe) {
+  const m = normModelo(modelo);
+  const c = normClasse(classe);
+
+  const ALLOWED_FB = new Set([
+    'RENDA FIXA DIGITAL', 'OFFSHORE', 'SEGURO DE VIDA', 'CONSÓRCIO', 'CONSORCIO'
+  ]);
+
+  const ALLOWED_FB_SRV = new Set([
+    ...ALLOWED_FB,
+    'PRODUTO ESTRUTURADO', 'RENDA VARIÁVEL (MESA)', 'RENDA VARIAVEL (MESA)'
+  ]);
+
+  if (m === 'FEE_BASED') {
+    return ALLOWED_FB.has(c);
+  }
+  if (m === 'FEE_BASED_SEM_RV') {
+    return ALLOWED_FB_SRV.has(c);
+  }
+  return true;
+}
+
+function calcReceitas(valor, roaPct, repasse, modelo, classe) {
+  const base = valor * (roaPct / 100.0);
+
+  if (!podeTerReceitaEscritorio(modelo, classe)) {
+    return { escritorio: 0.0, assessor: 0.0, base: base };
+  }
+
+  // Para Renda Fixa Digital, sempre usar repasse fixo de 50%
+  const classeNorm = normClasse(classe);
+  let rep;
+  if (classeNorm === 'RENDA FIXA DIGITAL') {
+    rep = 0.5;
+  } else {
+    rep = (parseInt(repasse) === 50) ? 0.5 : 0.35;
+  }
+
+  const receitaEscritorio = base;
+  const receitaAssessor = receitaEscritorio * 0.80 * rep;
+
+  return {
+    escritorio: receitaEscritorio,
+    assessor: receitaAssessor,
+    base: base
+  };
+}
+
 function updateColumnTotals() {
   console.log('updateColumnTotals() executada');
 
@@ -804,12 +840,19 @@ function updateColumnTotals() {
       console.log(`Coluna ${status} está vazia`);
     }
 
-    // Somar valores dos itens na coluna
+    // Somar valores dos itens na coluna, recalculando a receita
     items.forEach(item => {
       const valor = parseFloat(item.getAttribute('data-valor')) || 0;
-      const receita = parseFloat(item.getAttribute('data-receita-escritorio')) || 0;
+      const roaPct = parseFloat(item.getAttribute('data-roa-pct')) || 0;
+      const repasse = parseInt(item.getAttribute('data-repasse')) || 35;
+      const modelo = item.getAttribute('data-modelo') || '';
+      const classe = item.getAttribute('data-classe') || '';
 
-      console.log(`Item: valor=${valor}, receita=${receita}`);
+      // Recalcular receita com base nos dados do item
+      const receitas = calcReceitas(valor, roaPct, repasse, modelo, classe);
+      const receita = receitas.escritorio;
+
+      console.log(`Item: valor=${valor}, ROA=${roaPct}%, repasse=${repasse}, modelo=${modelo}, classe=${classe}, receita calculada=${receita}`);
 
       totalAplicado += valor;
       receitaEstimada += receita;
@@ -858,10 +901,23 @@ function updateColumnTotals() {
     receitaEscritorioElement.textContent = formatBRL(totaisPorStatus.confirmado.receita);
   }
 
-  // Calcular receita do assessor (aproximadamente 80% da receita do escritório)
-  if (receitaAssessorElement && totaisPorStatus.confirmado) {
-    const receitaAssessor = totaisPorStatus.confirmado.receita * 0.8;
-    receitaAssessorElement.textContent = formatBRL(receitaAssessor);
+  // Calcular receita do assessor corretamente (recalcular para cada item confirmado)
+  if (receitaAssessorElement) {
+    let receitaAssessorTotal = 0;
+    const confirmadosItems = document.querySelectorAll('.kanban-column[data-status="confirmado"] .kanban-item');
+
+    confirmadosItems.forEach(item => {
+      const valor = parseFloat(item.getAttribute('data-valor')) || 0;
+      const roaPct = parseFloat(item.getAttribute('data-roa-pct')) || 0;
+      const repasse = parseInt(item.getAttribute('data-repasse')) || 35;
+      const modelo = item.getAttribute('data-modelo') || '';
+      const classe = item.getAttribute('data-classe') || '';
+
+      const receitas = calcReceitas(valor, roaPct, repasse, modelo, classe);
+      receitaAssessorTotal += receitas.assessor;
+    });
+
+    receitaAssessorElement.textContent = formatBRL(receitaAssessorTotal);
   }
 
   // Atualizar simulador de receita se houver mudanças em confirmados
@@ -1188,8 +1244,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Ordenar colunas na inicialização
   sortAllColumns();
-  // Inicializar totais das colunas
-  updateColumnTotals();
+
+  // DEBUG: Verificar se os cards têm os dados necessários
+  console.log('=== VERIFICAÇÃO INICIAL DOS CARDS ===');
+  const allCards = document.querySelectorAll('.kanban-item');
+  console.log(`Total de cards encontrados: ${allCards.length}`);
+
+  allCards.forEach((card, index) => {
+    console.log(`Card ${index + 1}:`, {
+      id: card.getAttribute('data-id'),
+      status: card.getAttribute('data-status'),
+      valor: card.getAttribute('data-valor'),
+      roaPct: card.getAttribute('data-roa-pct'),
+      repasse: card.getAttribute('data-repasse'),
+      modelo: card.getAttribute('data-modelo'),
+      classe: card.getAttribute('data-classe'),
+      clienteNome: card.getAttribute('data-cliente-nome')
+    });
+  });
+  console.log('=== FIM VERIFICAÇÃO ===');
+
+  // 🔍 DEBUG: Verificar valores vindos do backend
+  console.log('=== VALORES DO BACKEND (Receitas Estimadas) ===');
+  const receitaCards = document.querySelectorAll('.receita-estimada-card[data-status]');
+  receitaCards.forEach(card => {
+    const status = card.getAttribute('data-status');
+    const valor = card.textContent;
+    console.log(`  ${status}: ${valor}`);
+  });
+  console.log('=== FIM VALORES BACKEND ===');
+
   // Melhorar efeitos visuais para as colunas inteiras do kanban
   const dropColumns = document.querySelectorAll('.kanban-column[data-status]');
 
