@@ -288,18 +288,20 @@ def _calcular_receitas_dashboard(cliente_id_filter=None):
 
 
 def _carregar_clientes():
-    """Carrega lista de clientes do usuário com cache."""
+    """Carrega lista de clientes do usuário com cache, excluindo modelo ASSET."""
     clientes = []
     uid = _uid()
     supabase = _get_supabase()
     if supabase:
         try:
-            cres = supabase.table("clientes").select("id, nome").order("nome")
+            cres = supabase.table("clientes").select("id, nome, modelo").order("nome")
             if uid:
                 cres = cres.eq("user_id", uid)
             else:
                 return []
-            clientes = (cres.execute().data or [])
+            todos_clientes = (cres.execute().data or [])
+            # Filtrar clientes que NÃO são modelo ASSET
+            clientes = [c for c in todos_clientes if c.get("modelo", "").upper() != "ASSET"]
         except Exception:
             current_app.logger.exception("Falha ao carregar clientes do Supabase")
             clientes = []
@@ -561,7 +563,24 @@ def novo():
             return redirect(url_for("alocacoes.novo"))
 
     clientes, produtos = _carregar_clientes_produtos()
-    return render_template("alocacoes/novo.html", clientes=clientes, produtos=produtos)
+
+    # Extrair letras iniciais únicas dos clientes (sem acentos)
+    import unicodedata
+    letras_disponiveis = set()
+    for c in clientes:
+        nome = c.get('nome', '')
+        if nome:
+            # Normalizar removendo acentos e pegar primeira letra
+            nome_normalizado = unicodedata.normalize('NFD', nome)
+            nome_sem_acento = ''.join(char for char in nome_normalizado if unicodedata.category(char) != 'Mn')
+            primeira_letra = nome_sem_acento[0].upper()
+            if primeira_letra.isalpha():
+                letras_disponiveis.add(primeira_letra)
+
+    # Ordenar letras alfabeticamente
+    letras_disponiveis = sorted(list(letras_disponiveis))
+
+    return render_template("alocacoes/novo.html", clientes=clientes, produtos=produtos, letras_disponiveis=letras_disponiveis)
 
 
 # ---------------- EDITAR ALOCAÇÃO ----------------

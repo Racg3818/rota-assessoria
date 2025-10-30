@@ -1,51 +1,291 @@
 {% extends "base.html" %}
-{% block title %}Nova Alocação{% endblock %}
-{% block subtitle %}Vincular produto a um cliente{% endblock %}
+{% block title %}Nova Alocação — Rota Assessoria{% endblock %}
+{% block subtitle %}Cadastrar Nova Alocação{% endblock %}
 {% block content %}
-<form method="POST" class="space-y-4 max-w-xl">
-  <div class="border rounded-xl p-4 bg-white">
-    <h3 class="font-medium mb-3">Vincular produto a um cliente</h3>
 
-    <div class="mb-3">
-      <label class="block text-sm text-gray-600 mb-1">Cliente</label>
-      <select name="cliente_id" class="border rounded px-3 py-2 w-full" required>
-        <option value="" disabled selected>Selecione o cliente</option>
+<!-- Header Moderno -->
+<div class="relative mb-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-700 rounded-3xl p-6 text-white overflow-hidden">
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-0 -left-4 w-64 h-64 bg-white rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
+    <div class="absolute top-0 -right-4 w-64 h-64 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
+  </div>
+
+  <div class="relative z-10">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <span class="text-xl">➕</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold text-white">Nova Alocação</h1>
+        </div>
+        <p class="text-purple-100 text-sm md:text-base">Vincule um produto a um cliente</p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <a href="{{ url_for('alocacoes.index') }}"
+           class="px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors shadow-lg">
+          ← Voltar para Alocações
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Formulário Principal -->
+<form method="POST" class="max-w-3xl mx-auto">
+  <div class="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
+
+    <!-- Título da Seção -->
+    <div class="mb-8">
+      <h2 class="text-2xl font-bold text-gray-900 mb-2">📋 Dados da Alocação</h2>
+      <p class="text-gray-600">Preencha os campos abaixo para cadastrar uma nova alocação</p>
+    </div>
+
+    <!-- Cliente -->
+    <div class="mb-6">
+      <label class="block text-sm font-semibold text-gray-700 mb-3">
+        <span class="flex items-center gap-2">
+          <span>👤</span>
+          <span>Cliente</span>
+          <span class="text-red-500">*</span>
+        </span>
+      </label>
+
+      <!-- Filtro alfabético -->
+      {% if letras_disponiveis %}
+      <div class="mb-4 bg-gray-50 rounded-xl p-4 border border-gray-200">
+        <p class="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Filtrar por inicial:</p>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" onclick="filtrarClientes('TODOS')"
+                  class="filtro-letra px-4 py-2 text-sm font-medium rounded-lg border-2 transition-all duration-200 border-purple-600 bg-purple-600 text-white hover:bg-purple-700 shadow-sm active"
+                  data-letra="TODOS">
+            Todos
+          </button>
+          {% for letra in letras_disponiveis %}
+          <button type="button" onclick="filtrarClientes('{{ letra }}')"
+                  class="filtro-letra px-4 py-2 text-sm font-medium rounded-lg border-2 transition-all duration-200 border-gray-300 bg-white text-gray-700 hover:border-purple-400 hover:bg-purple-50"
+                  data-letra="{{ letra }}">
+            {{ letra }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <select name="cliente_id" id="select-cliente"
+              class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white text-gray-900 font-medium"
+              required>
+        <option value="" disabled selected class="text-gray-400">🔍 Selecione o cliente...</option>
         {% for c in clientes %}
-          <option value="{{ c.id }}">{{ c.nome }}</option>
+          <option value="{{ c.id }}" data-nome="{{ c.nome }}">{{ c.nome }}</option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="mb-3">
-      <label class="block text-sm text-gray-600 mb-1">Produto</label>
-      <select name="produto_id" class="border rounded px-3 py-2 w-full" required>
-        <option value="" disabled selected>Selecione o produto</option>
+    <!-- Produto -->
+    <div class="mb-6">
+      <label class="block text-sm font-semibold text-gray-700 mb-3">
+        <span class="flex items-center gap-2">
+          <span>🧩</span>
+          <span>Produto</span>
+          <span class="text-red-500">*</span>
+        </span>
+      </label>
+      <select name="produto_id"
+              class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white text-gray-900 font-medium"
+              required>
+        <option value="" disabled selected class="text-gray-400">🔍 Selecione o produto...</option>
         {% for p in produtos %}
-          <option value="{{ p.id }}">{{ p.nome }}{% if p.classe %} — {{ p.classe }}{% endif %}</option>
+          <option value="{{ p.id }}">
+            {{ p.nome }}{% if p.classe %} — {{ p.classe }}{% endif %}
+          </option>
         {% endfor %}
       </select>
     </div>
 
-    <!-- ✅ Valor financeiro no lugar do percentual -->
-    <div class="mb-3">
-      <label class="block text-sm text-gray-600">Valor (R$)</label>
-      <input name="valor" type="number" step="0.01" min="0" value="0"
-             class="border rounded px-3 py-2 w-40" />
+    <!-- Valor -->
+    <div class="mb-8">
+      <label class="block text-sm font-semibold text-gray-700 mb-3">
+        <span class="flex items-center gap-2">
+          <span>💰</span>
+          <span>Valor (R$)</span>
+          <span class="text-red-500">*</span>
+        </span>
+      </label>
+      <div class="relative">
+        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          <span class="text-gray-500 font-semibold">R$</span>
+        </div>
+        <input name="valor" type="number" step="0.01" min="0" value="0"
+               class="w-full pl-12 pr-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all text-gray-900 font-semibold text-lg"
+               placeholder="0,00" />
+      </div>
+      <p class="mt-2 text-xs text-gray-500">
+        💡 <span class="font-medium">Dica:</span> Se já existir uma alocação para esta combinação cliente + produto, o valor será somado ao existente.
+      </p>
     </div>
 
-    <button class="px-3 py-2 rounded bg-gray-900 text-white text-sm">Cadastrar alocação</button>
+    <!-- Botão de Submit -->
+    <div class="flex gap-3">
+      <button type="submit"
+              class="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3.5 rounded-xl font-bold text-base hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+        ✅ Cadastrar Alocação
+      </button>
+      <a href="{{ url_for('alocacoes.index') }}"
+         class="px-6 py-3.5 bg-gray-100 text-gray-700 rounded-xl font-bold text-base hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all">
+        ✖️ Cancelar
+      </a>
+    </div>
   </div>
 </form>
 
-{% if not clientes %}
-  <div class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
-    Nenhum cliente encontrado. Cadastre clientes em <strong>Clientes</strong> ou verifique sua conexão com o Supabase.
+<!-- Avisos -->
+<div class="max-w-3xl mx-auto mt-6 space-y-4">
+  {% if not clientes %}
+  <div class="bg-amber-50 border-l-4 border-amber-400 rounded-xl p-5 shadow-sm">
+    <div class="flex items-start gap-3">
+      <div class="text-2xl">⚠️</div>
+      <div>
+        <p class="font-semibold text-amber-800 mb-1">Nenhum cliente encontrado</p>
+        <p class="text-sm text-amber-700">
+          Cadastre clientes em <a href="{{ url_for('clientes.novo') }}" class="underline font-bold hover:text-amber-900">Clientes → Novo</a> ou verifique sua conexão com o Supabase.
+        </p>
+      </div>
+    </div>
   </div>
-{% endif %}
+  {% endif %}
 
-{% if not produtos %}
-  <div class="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
-    Nenhum produto encontrado. Crie em <a href="{{ url_for('alocacoes.produtos') }}" class="underline">Alocações &rarr; Produtos</a>.
+  {% if not produtos %}
+  <div class="bg-blue-50 border-l-4 border-blue-400 rounded-xl p-5 shadow-sm">
+    <div class="flex items-start gap-3">
+      <div class="text-2xl">ℹ️</div>
+      <div>
+        <p class="font-semibold text-blue-800 mb-1">Nenhum produto encontrado</p>
+        <p class="text-sm text-blue-700">
+          Crie produtos em <a href="{{ url_for('alocacoes.produtos') }}" class="underline font-bold hover:text-blue-900">Alocações → Produtos</a> para começar a cadastrar alocações.
+        </p>
+      </div>
+    </div>
   </div>
-{% endif %}
+  {% endif %}
+</div>
+
+<style>
+  .filtro-letra.active {
+    border-color: #7c3aed !important;
+    background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
+    color: white !important;
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .filtro-letra:not(.active):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Animação suave para transições */
+  .filtro-letra {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Estilo para inputs quando focados */
+  input:focus, select:focus {
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+  }
+
+  /* Animação do botão de submit */
+  button[type="submit"]:active {
+    transform: translateY(0) !important;
+  }
+
+  /* Placeholder customizado */
+  ::placeholder {
+    color: #9ca3af;
+    opacity: 1;
+  }
+</style>
+
+<script>
+  // Guardar todas as opções originais ao carregar a página
+  let todasOpcoes = [];
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const select = document.getElementById('select-cliente');
+
+    // Guardar todas as opções (exceto a primeira que é o placeholder)
+    for (let i = 1; i < select.options.length; i++) {
+      todasOpcoes.push({
+        value: select.options[i].value,
+        text: select.options[i].text,
+        nome: select.options[i].getAttribute('data-nome')
+      });
+    }
+  });
+
+  function filtrarClientes(letra) {
+    const select = document.getElementById('select-cliente');
+
+    // Limpar todas as opções (exceto o placeholder)
+    while (select.options.length > 1) {
+      select.remove(1);
+    }
+
+    // Resetar para o placeholder
+    select.selectedIndex = 0;
+
+    // Filtrar e adicionar opções
+    let opcoesFiltradas;
+
+    if (letra === 'TODOS') {
+      opcoesFiltradas = todasOpcoes;
+    } else {
+      // Normalizar nome removendo acentos para comparação
+      opcoesFiltradas = todasOpcoes.filter(opcao => {
+        const primeiraLetra = opcao.nome
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .charAt(0)
+          .toUpperCase();
+        return primeiraLetra === letra;
+      });
+    }
+
+    // Adicionar opções filtradas
+    opcoesFiltradas.forEach(opcao => {
+      const option = document.createElement('option');
+      option.value = opcao.value;
+      option.text = opcao.text;
+      option.setAttribute('data-nome', opcao.nome);
+      select.add(option);
+    });
+
+    // Atualizar botão ativo
+    document.querySelectorAll('.filtro-letra').forEach(btn => {
+      btn.classList.remove('active');
+    });
+
+    const botaoAtivo = document.querySelector(`[data-letra="${letra}"]`);
+    if (botaoAtivo) {
+      botaoAtivo.classList.add('active');
+    }
+
+    // Mostrar mensagem se não houver resultados
+    if (opcoesFiltradas.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.text = `❌ Nenhum cliente encontrado com a letra ${letra}`;
+      option.disabled = true;
+      select.add(option);
+    }
+  }
+
+  // Adicionar feedback visual ao formulário
+  document.querySelector('form').addEventListener('submit', function(e) {
+    const submitBtn = this.querySelector('button[type="submit"]');
+    submitBtn.innerHTML = '⏳ Processando...';
+    submitBtn.disabled = true;
+  });
+</script>
 {% endblock %}
