@@ -430,22 +430,126 @@
   </div>
 </div>
 
-<!-- NET por modelo -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-  {% for k in modelos %}
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-xs text-gray-500">{{ k }}</div>
-    <div class="text-2xl font-semibold">{{ net_by_modelo.get(k, 0)|brl }}</div>
-    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+<!-- NET por modelo - Design Moderno com Percentuais -->
+<div class="mb-8">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold text-gray-900">Distribuição de NET por Modelo</h2>
+    <div class="text-sm text-gray-500">Total: {{ net_total_geral|brl }}</div>
   </div>
-  {% endfor %}
-  {% for modelo, valor in net_by_modelo.items() if modelo not in modelos %}
-  <div class="border rounded-xl p-4 bg-white">
-    <div class="text-xs text-gray-500">{{ modelo }}</div>
-    <div class="text-2xl font-semibold">{{ valor|brl }}</div>
-    <div class="text-xs text-gray-400 mt-1">NET (soma do cadastro de clientes)</div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    {% for k in modelos %}
+    {% set valor = net_by_modelo.get(k, 0) %}
+    {% set pct = net_pct_by_modelo.get(k, 0) %}
+
+    {% if k == 'TRADICIONAL' %}
+      {% set modelo_gradient = 'from-blue-500 to-blue-600' %}
+      {% set modelo_bg = 'bg-blue-50' %}
+      {% set modelo_border = 'border-blue-200' %}
+      {% set modelo_text = 'text-blue-700' %}
+      {% set modelo_icon_bg = 'bg-blue-500' %}
+    {% elif k == 'ASSET' %}
+      {% set modelo_gradient = 'from-purple-500 to-purple-600' %}
+      {% set modelo_bg = 'bg-purple-50' %}
+      {% set modelo_border = 'border-purple-200' %}
+      {% set modelo_text = 'text-purple-700' %}
+      {% set modelo_icon_bg = 'bg-purple-500' %}
+    {% elif k == 'FEE_BASED' %}
+      {% set modelo_gradient = 'from-emerald-500 to-emerald-600' %}
+      {% set modelo_bg = 'bg-emerald-50' %}
+      {% set modelo_border = 'border-emerald-200' %}
+      {% set modelo_text = 'text-emerald-700' %}
+      {% set modelo_icon_bg = 'bg-emerald-500' %}
+    {% elif k == 'FEE_BASED_SEM_RV' %}
+      {% set modelo_gradient = 'from-teal-500 to-teal-600' %}
+      {% set modelo_bg = 'bg-teal-50' %}
+      {% set modelo_border = 'border-teal-200' %}
+      {% set modelo_text = 'text-teal-700' %}
+      {% set modelo_icon_bg = 'bg-teal-500' %}
+    {% else %}
+      {% set modelo_gradient = 'from-gray-500 to-gray-600' %}
+      {% set modelo_bg = 'bg-gray-50' %}
+      {% set modelo_border = 'border-gray-200' %}
+      {% set modelo_text = 'text-gray-700' %}
+      {% set modelo_icon_bg = 'bg-gray-500' %}
+    {% endif %}
+
+    <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border {{ modelo_border }} {{ modelo_bg }} hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+      <!-- Background Decoration -->
+      <div class="absolute top-0 right-0 transform translate-x-8 -translate-y-8">
+        <div class="w-24 h-24 bg-gradient-to-br {{ modelo_gradient }} rounded-full opacity-10"></div>
+      </div>
+
+      <div class="relative z-10">
+        <div class="flex items-start justify-between mb-4">
+          <div class="w-10 h-10 {{ modelo_icon_bg }} rounded-xl flex items-center justify-center">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+          </div>
+          <div class="px-2 py-1 bg-white/80 backdrop-blur-sm rounded-full border {{ modelo_border }}">
+            <div class="text-xs font-bold {{ modelo_text }}">{{ '%.1f'|format(pct) }}%</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <h3 class="text-sm font-medium text-gray-600 mb-1">{{ k.replace('_', ' ').title() }}</h3>
+            <div class="text-2xl font-bold {{ modelo_text }}">{{ valor|brl }}</div>
+          </div>
+
+          <!-- Barra de progresso percentual -->
+          <div class="space-y-1">
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 bg-gradient-to-r {{ modelo_gradient }} rounded-full transition-all duration-300"
+                   style="width: {{ pct }}%"></div>
+            </div>
+            <div class="text-xs text-gray-500">{{ '%.1f'|format(pct) }}% do total da carteira</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% for modelo, valor in net_by_modelo.items() if modelo not in modelos %}
+    {% set pct = net_pct_by_modelo.get(modelo, 0) %}
+    <div class="group relative bg-white rounded-2xl p-6 shadow-lg shadow-gray-200/50 border border-orange-200 bg-orange-50 hover:shadow-xl hover:shadow-gray-300/30 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+      <!-- Background Decoration -->
+      <div class="absolute top-0 right-0 transform translate-x-8 -translate-y-8">
+        <div class="w-24 h-24 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full opacity-10"></div>
+      </div>
+
+      <div class="relative z-10">
+        <div class="flex items-start justify-between mb-4">
+          <div class="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+          </div>
+          <div class="px-2 py-1 bg-white/80 backdrop-blur-sm rounded-full border border-orange-200">
+            <div class="text-xs font-bold text-orange-700">{{ '%.1f'|format(pct) }}%</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <h3 class="text-sm font-medium text-gray-600 mb-1">{{ modelo }}</h3>
+            <div class="text-2xl font-bold text-orange-700">{{ valor|brl }}</div>
+          </div>
+
+          <!-- Barra de progresso percentual -->
+          <div class="space-y-1">
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 bg-gradient-to-r from-orange-500 to-orange-600 rounded-full transition-all duration-300"
+                   style="width: {{ pct }}%"></div>
+            </div>
+            <div class="text-xs text-gray-500">{{ '%.1f'|format(pct) }}% do total da carteira</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
 </div>
 
 <!-- NET Total -->

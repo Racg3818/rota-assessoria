@@ -1621,6 +1621,13 @@ def index():
 
     quadrant_pct = {k: (counts[k] / total_clientes * 100.0) for k in counts.keys()}
 
+    # Calcular percentuais de NET por modelo
+    net_total_geral = sum(net_by_modelo.values())
+    net_pct_by_modelo = {}
+    if net_total_geral > 0:
+        for modelo, valor in net_by_modelo.items():
+            net_pct_by_modelo[modelo] = (valor / net_total_geral * 100.0) if valor > 0 else 0.0
+
     return render_template(
         "dashboard.html",
         mes=mes,
@@ -1629,6 +1636,7 @@ def index():
         clientes=clientes,
         by_modelo=by_modelo,
         net_by_modelo=net_by_modelo,
+        net_pct_by_modelo=net_pct_by_modelo,
         mediana_net=mediana_net,
         mediana_receita_escritorio_ano=mediana_receita_ytd,
         media_receita_escritorio_ano=mediana_receita_ytd,
@@ -1666,7 +1674,7 @@ def index():
         # ROA
         roa_percentual=roa_percentual,
         # NET Total
-        net_total_geral=sum(net_by_modelo.values()),
+        net_total_geral=net_total_geral,
         # Histórico receita passiva para gráfico
         historico_receita_passiva=historico_receita_passiva,
     )
