@@ -585,55 +585,176 @@
   </div>
 </div>
 
-<!-- Quadrantes -->
-<div class="border rounded-xl p-4 bg-white mt-6">
-  <div class="flex items-center justify-between mb-3">
-    <h3 class="font-medium">Quadrantes de clientes — Receita (X) x NET (Y) • {{ mes[:4] }}</h3>
-    <div class="text-sm text-gray-500">Base: {{ quadrant_total }} cliente(s)</div>
-  </div>
-
-  <div class="relative w-full h-64 md:h-80 border rounded overflow-hidden">
-    <div class="absolute inset-0 pointer-events-none">
-      <div class="absolute top-0 bottom-0 left-1/2 w-px bg-black/40"></div>
-      <div class="absolute left-0 right-0 top-1/2 h-px bg-black/40"></div>
+<!-- Quadrantes - Design Moderno com Chart.js -->
+<div class="bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border border-gray-100 mt-8">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h3 class="text-2xl font-bold text-gray-900 mb-2">Matriz de Clientes</h3>
+      <p class="text-sm text-gray-600">Análise de Receita YTD × NET Total • {{ mes[:4] }}</p>
     </div>
-
-    <div class="absolute top-1 left-1/2 -translate-x-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded">
-      Corte Receita (mediana): {{ mediana_receita_escritorio_ano|brl }}
-    </div>
-    <div class="absolute right-1 top-1/2 -translate-y-1/2 text-[11px] md:text-sm font-semibold bg-white/70 px-1 rounded transform rotate-90 origin-right">
-      Corte NET (mediana): {{ mediana_net|brl }}
-    </div>
-
-    <div class="absolute inset-0 grid grid-cols-2 grid-rows-2">
-      <div class="bg-amber-500 flex flex-col items-center justify-center text-white">
-        <div class="text-lg md:text-xl font-semibold">Q3 ({{ quadrant_counts.Q3 }})</div>
-        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q3) }}%</div>
-        <div class="text-[11px] mt-1 opacity-90">Alto NET • Baixa Receita</div>
-      </div>
-      <div class="bg-emerald-500 flex flex-col items-center justify-center text-white">
-        <div class="text-lg md:text-xl font-semibold">Q1 ({{ quadrant_counts.Q1 }})</div>
-        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q1) }}%</div>
-        <div class="text-[11px] mt-1 opacity-90">Alto NET • Alta Receita</div>
-      </div>
-      <div class="bg-slate-400 flex flex-col items-center justify-center text-white">
-        <div class="text-lg md:text-xl font-semibold">Q4 ({{ quadrant_counts.Q4 }})</div>
-        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q4) }}%</div>
-        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Baixa Receita</div>
-      </div>
-      <div class="bg-blue-500 flex flex-col items-center justify-center text-white">
-        <div class="text-lg md:text-xl font-semibold">Q2 ({{ quadrant_counts.Q2 }})</div>
-        <div class="text-sm opacity-90">{{ '%.2f'|format(quadrant_pct.Q2) }}%</div>
-        <div class="text-[11px] mt-1 opacity-90">Baixo NET • Alta Receita</div>
-      </div>
+    <div class="text-right">
+      <div class="text-sm text-gray-500">Base Total</div>
+      <div class="text-2xl font-bold text-gray-900">{{ quadrant_total }}</div>
+      <div class="text-xs text-gray-500">clientes</div>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 text-sm">
-    <div><b>Q1</b>: Receita ≥ <u>mediana</u> & NET ≥ <u>mediana</u></div>
-    <div><b>Q2</b>: Receita ≥ <u>mediana</u> & NET &lt; <u>mediana</u></div>
-    <div><b>Q3</b>: Receita &lt; <u>mediana</u> & NET ≥ <u>mediana</u></div>
-    <div><b>Q4</b>: Receita &lt; <u>mediana</u> & NET &lt; <u>mediana</u></div>
+  <!-- Cards dos Quadrantes -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <!-- Q1 - Estrelas -->
+    <div class="relative bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-4 border-2 border-emerald-300 overflow-hidden group hover:shadow-lg transition-all duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-emerald-500 rounded-full transform translate-x-8 -translate-y-8 opacity-20"></div>
+      <div class="relative z-10">
+        <div class="flex items-center justify-between mb-2">
+          <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold text-sm">Q1</span>
+          </div>
+          <div class="text-xs font-medium text-emerald-700 bg-emerald-200 px-2 py-1 rounded-full">
+            {{ '%.1f'|format(quadrant_pct.Q1) }}%
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-emerald-700">{{ quadrant_counts.Q1 }}</div>
+        <div class="text-xs text-emerald-600 font-medium mt-1">⭐ Estrelas</div>
+        <div class="text-[10px] text-emerald-600 opacity-75 mt-1">Alto NET • Alta Receita</div>
+      </div>
+    </div>
+
+    <!-- Q2 - Promissores -->
+    <div class="relative bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-4 border-2 border-blue-300 overflow-hidden group hover:shadow-lg transition-all duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-blue-500 rounded-full transform translate-x-8 -translate-y-8 opacity-20"></div>
+      <div class="relative z-10">
+        <div class="flex items-center justify-between mb-2">
+          <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold text-sm">Q2</span>
+          </div>
+          <div class="text-xs font-medium text-blue-700 bg-blue-200 px-2 py-1 rounded-full">
+            {{ '%.1f'|format(quadrant_pct.Q2) }}%
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-blue-700">{{ quadrant_counts.Q2 }}</div>
+        <div class="text-xs text-blue-600 font-medium mt-1">🚀 Promissores</div>
+        <div class="text-[10px] text-blue-600 opacity-75 mt-1">Baixo NET • Alta Receita</div>
+      </div>
+    </div>
+
+    <!-- Q3 - Potencial -->
+    <div class="relative bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl p-4 border-2 border-amber-300 overflow-hidden group hover:shadow-lg transition-all duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-amber-500 rounded-full transform translate-x-8 -translate-y-8 opacity-20"></div>
+      <div class="relative z-10">
+        <div class="flex items-center justify-between mb-2">
+          <div class="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold text-sm">Q3</span>
+          </div>
+          <div class="text-xs font-medium text-amber-700 bg-amber-200 px-2 py-1 rounded-full">
+            {{ '%.1f'|format(quadrant_pct.Q3) }}%
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-amber-700">{{ quadrant_counts.Q3 }}</div>
+        <div class="text-xs text-amber-600 font-medium mt-1">💎 Potencial</div>
+        <div class="text-[10px] text-amber-600 opacity-75 mt-1">Alto NET • Baixa Receita</div>
+      </div>
+    </div>
+
+    <!-- Q4 - Desenvolver -->
+    <div class="relative bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl p-4 border-2 border-slate-300 overflow-hidden group hover:shadow-lg transition-all duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-slate-500 rounded-full transform translate-x-8 -translate-y-8 opacity-20"></div>
+      <div class="relative z-10">
+        <div class="flex items-center justify-between mb-2">
+          <div class="w-8 h-8 bg-slate-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold text-sm">Q4</span>
+          </div>
+          <div class="text-xs font-medium text-slate-700 bg-slate-200 px-2 py-1 rounded-full">
+            {{ '%.1f'|format(quadrant_pct.Q4) }}%
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-700">{{ quadrant_counts.Q4 }}</div>
+        <div class="text-xs text-slate-600 font-medium mt-1">🌱 Desenvolver</div>
+        <div class="text-[10px] text-slate-600 opacity-75 mt-1">Baixo NET • Baixa Receita</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gráfico Scatter Interativo -->
+  <div class="relative bg-gradient-to-br from-gray-50 to-white rounded-2xl p-6 border border-gray-200">
+    <div class="h-96">
+      <canvas id="quadrantesChart"></canvas>
+    </div>
+
+    <!-- Legenda de cortes e proximidade -->
+    <div class="space-y-4 mt-6">
+      <!-- Medianas -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl border-2 border-blue-300 shadow-sm">
+          <div class="flex-shrink-0 w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+            <div class="w-1 h-6 bg-white rounded"></div>
+          </div>
+          <div>
+            <div class="font-bold text-blue-900 text-xs uppercase tracking-wide">Centro do Gráfico (Eixo X)</div>
+            <div class="font-semibold text-blue-800 mt-1">Receita Mediana: {{ mediana_receita_escritorio_ano|brl }}</div>
+            <div class="text-blue-600 text-xs mt-1">Linha vertical azul | Clientes distribuídos à esquerda (abaixo) e direita (acima)</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl border-2 border-purple-300 shadow-sm">
+          <div class="flex-shrink-0 w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
+            <div class="w-6 h-1 bg-white rounded"></div>
+          </div>
+          <div>
+            <div class="font-bold text-purple-900 text-xs uppercase tracking-wide">Centro do Gráfico (Eixo Y)</div>
+            <div class="font-semibold text-purple-800 mt-1">NET Mediana: {{ mediana_net|brl }}</div>
+            <div class="text-purple-600 text-xs mt-1">Linha horizontal roxa | Clientes distribuídos abaixo e acima</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zonas de Proximidade -->
+      <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-5 border border-gray-200">
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+          <h4 class="font-bold text-gray-900 text-sm uppercase tracking-wide">Zonas de Proximidade da Transição</h4>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div class="flex items-start gap-2 p-3 bg-white rounded-lg border border-red-200">
+            <div class="flex-shrink-0 w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+              <span class="text-red-600 font-bold">🔴</span>
+            </div>
+            <div>
+              <div class="font-bold text-red-900">Zona Crítica</div>
+              <div class="text-red-700 mt-1">Distância &lt; R$ 50k</div>
+              <div class="text-red-600 text-[10px] mt-1">Muito perto de mudar de quadrante</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2 p-3 bg-white rounded-lg border border-amber-200">
+            <div class="flex-shrink-0 w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+              <span class="text-amber-600 font-bold">🟡</span>
+            </div>
+            <div>
+              <div class="font-bold text-amber-900">Zona de Atenção</div>
+              <div class="text-amber-700 mt-1">Distância &lt; R$ 150k</div>
+              <div class="text-amber-600 text-[10px] mt-1">Próximo da transição de quadrante</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2 p-3 bg-white rounded-lg border border-emerald-200">
+            <div class="flex-shrink-0 w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+              <span class="text-emerald-600 font-bold">🟢</span>
+            </div>
+            <div>
+              <div class="font-bold text-emerald-900">Zona Estável</div>
+              <div class="text-emerald-700 mt-1">Distância ≥ R$ 150k</div>
+              <div class="text-emerald-600 text-[10px] mt-1">Bem posicionado no quadrante</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+          <p class="text-blue-800 text-xs leading-relaxed">
+            <strong>💡 Como ler o gráfico:</strong> O centro do gráfico (ponto vermelho 🔴) representa os valores medianos da carteira.
+            A linha vertical azul marca a <strong>Receita Mediana</strong> ({{ mediana_receita_escritorio_ano|brl }}) e a linha horizontal roxa marca a <strong>NET Mediana</strong> ({{ mediana_net|brl }}).
+            Clientes são distribuídos em relação a esses valores centrais - quanto mais distante do centro, mais diferente da mediana.
+            Clientes próximos ao centro estão perto de mudar de quadrante com pequenas variações.
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -672,9 +793,25 @@
 
 
 <!-- Gráfico evolução receita passiva assessor -->
-<div class="border rounded-xl p-4 bg-white mt-6">
-  <h3 class="font-medium mb-4">Evolução da Receita Passiva Assessor</h3>
-  <div class="h-64">
+<div class="border rounded-xl p-6 bg-white mt-6">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h3 class="font-bold text-lg text-gray-900">Evolução da Receita Passiva Assessor</h3>
+      <p class="text-sm text-gray-600 mt-1">Receita recorrente por produto nos últimos 12 meses</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="toggleAllLines" class="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
+        Mostrar/Ocultar Todos
+      </button>
+    </div>
+  </div>
+
+  <!-- Controles de visibilidade (checkboxes para produtos) -->
+  <div id="productToggles" class="mb-4 flex flex-wrap gap-2">
+    <!-- Será preenchido dinamicamente pelo JavaScript -->
+  </div>
+
+  <div class="h-96">
     <canvas id="receitaPassivaChart"></canvas>
   </div>
 </div>
@@ -682,39 +819,106 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
 
-  // ========== GRÁFICO RECEITA PASSIVA ASSESSOR ==========
-  const ctx = document.getElementById('receitaPassivaChart').getContext('2d');
-  
-  const dados = {{ historico_receita_passiva|tojson }};
-  console.log('Dados histórico receita passiva:', dados);
-  
-  const labels = dados.map(item => item.mes);
-  const valores = dados.map(item => item.receita);
-  
+  // ========== GRÁFICO RECEITA PASSIVA ASSESSOR (MÚLTIPLAS LINHAS) ==========
+  const ctxPassiva = document.getElementById('receitaPassivaChart').getContext('2d');
+
+  const dadosCompletos = {{ historico_receita_passiva|tojson }};
+  console.log('Dados histórico receita passiva (completo):', dadosCompletos);
+
+  // Extrair labels (meses) do histórico total
+  const labels = (dadosCompletos.total || []).map(item => item.mes);
+
+  // Paleta de cores para os produtos
+  const colorPalette = [
+    { border: 'rgb(16, 185, 129)', bg: 'rgba(16, 185, 129, 0.1)' },     // Verde
+    { border: 'rgb(59, 130, 246)', bg: 'rgba(59, 130, 246, 0.1)' },     // Azul
+    { border: 'rgb(245, 158, 11)', bg: 'rgba(245, 158, 11, 0.1)' },     // Laranja
+    { border: 'rgb(168, 85, 247)', bg: 'rgba(168, 85, 247, 0.1)' },     // Roxo
+    { border: 'rgb(236, 72, 153)', bg: 'rgba(236, 72, 153, 0.1)' },     // Rosa
+    { border: 'rgb(20, 184, 166)', bg: 'rgba(20, 184, 166, 0.1)' },     // Teal
+    { border: 'rgb(251, 146, 60)', bg: 'rgba(251, 146, 60, 0.1)' },     // Laranja claro
+    { border: 'rgb(139, 92, 246)', bg: 'rgba(139, 92, 246, 0.1)' }      // Violeta
+  ];
+
+  // Criar dataset para linha TOTAL (sempre em destaque)
+  const datasetTotal = {
+    label: 'TOTAL',
+    data: (dadosCompletos.total || []).map(item => item.receita),
+    borderColor: 'rgb(17, 24, 39)',
+    backgroundColor: 'rgba(17, 24, 39, 0.1)',
+    borderWidth: 3,
+    fill: true,
+    tension: 0.3,
+    hidden: false,
+    pointRadius: 4,
+    pointHoverRadius: 6
+  };
+
+  // Criar datasets para cada produto
+  const porProduto = dadosCompletos.por_produto || {};
+  const produtoNomes = Object.keys(porProduto).sort();
+
+  const datasetsProdutos = produtoNomes.map((produto, index) => {
+    const colorIndex = index % colorPalette.length;
+    const color = colorPalette[colorIndex];
+
+    // Criar array de valores alinhado com labels
+    const valoresProduto = labels.map(mes => {
+      const encontrado = porProduto[produto].find(item => item.mes === mes);
+      return encontrado ? encontrado.receita : 0;
+    });
+
+    return {
+      label: produto,
+      data: valoresProduto,
+      borderColor: color.border,
+      backgroundColor: color.bg,
+      borderWidth: 2,
+      fill: true,
+      tension: 0.3,
+      hidden: false,  // Todas visíveis por padrão
+      pointRadius: 3,
+      pointHoverRadius: 5
+    };
+  });
+
+  // Combinar todos os datasets (TOTAL primeiro)
+  const allDatasets = [datasetTotal, ...datasetsProdutos];
+
   console.log('Labels:', labels);
-  console.log('Valores:', valores);
-  
-  new Chart(ctx, {
+  console.log('Datasets criados:', allDatasets.length);
+
+  const receitaPassivaChart = new Chart(ctxPassiva, {
     type: 'line',
     data: {
       labels: labels,
-      datasets: [{
-        label: 'Receita Passiva Assessor',
-        data: valores,
-        borderColor: '#10b981',
-        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-        borderWidth: 2,
-        fill: true,
-        tension: 0.3
-      }]
+      datasets: allDatasets
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          display: true,
-          position: 'top'
+          display: false  // Ocultamos a legenda padrão (usaremos controles customizados)
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.95)',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: 'rgba(255, 255, 255, 0.3)',
+          borderWidth: 1,
+          padding: 12,
+          displayColors: true,
+          callbacks: {
+            label: function(context) {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y;
+              return label + ': R$ ' + value.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              });
+            }
+          }
         }
       },
       scales: {
@@ -723,8 +927,8 @@ document.addEventListener('DOMContentLoaded', function() {
           ticks: {
             callback: function(value) {
               return 'R$ ' + value.toLocaleString('pt-BR', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
               });
             }
           }
@@ -739,16 +943,422 @@ document.addEventListener('DOMContentLoaded', function() {
       interaction: {
         intersect: false,
         mode: 'index'
-      },
-      tooltips: {
-        callbacks: {
-          label: function(context) {
-            return 'R$ ' + context.parsed.y.toLocaleString('pt-BR', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            });
+      }
+    }
+  });
+
+  // ========== CRIAR CONTROLES DE VISIBILIDADE (CHECKBOXES) ==========
+  const togglesContainer = document.getElementById('productToggles');
+
+  allDatasets.forEach((dataset, index) => {
+    const toggleButton = document.createElement('button');
+    toggleButton.className = 'px-3 py-2 text-xs font-medium rounded-lg border-2 transition-all flex items-center gap-2';
+    toggleButton.style.borderColor = dataset.borderColor;
+    toggleButton.style.backgroundColor = dataset.hidden ? '#f3f4f6' : dataset.backgroundColor;
+    toggleButton.style.color = dataset.hidden ? '#9ca3af' : dataset.borderColor;
+
+    // Adicionar ícone de check/uncheck
+    const icon = document.createElement('span');
+    icon.textContent = dataset.hidden ? '☐' : '☑';
+    icon.className = 'text-base';
+
+    const text = document.createElement('span');
+    text.textContent = dataset.label;
+
+    toggleButton.appendChild(icon);
+    toggleButton.appendChild(text);
+
+    toggleButton.addEventListener('click', () => {
+      const meta = receitaPassivaChart.getDatasetMeta(index);
+      meta.hidden = !meta.hidden;
+      receitaPassivaChart.update();
+
+      // Atualizar aparência do botão
+      toggleButton.style.backgroundColor = meta.hidden ? '#f3f4f6' : dataset.backgroundColor;
+      toggleButton.style.color = meta.hidden ? '#9ca3af' : dataset.borderColor;
+      icon.textContent = meta.hidden ? '☐' : '☑';
+    });
+
+    togglesContainer.appendChild(toggleButton);
+  });
+
+  // ========== BOTÃO TOGGLE ALL ==========
+  const toggleAllButton = document.getElementById('toggleAllLines');
+  let allVisible = true;
+
+  toggleAllButton.addEventListener('click', () => {
+    allVisible = !allVisible;
+
+    receitaPassivaChart.data.datasets.forEach((dataset, index) => {
+      const meta = receitaPassivaChart.getDatasetMeta(index);
+      meta.hidden = !allVisible;
+    });
+
+    receitaPassivaChart.update();
+
+    // Atualizar todos os botões de toggle
+    const buttons = togglesContainer.querySelectorAll('button');
+    buttons.forEach((button, index) => {
+      const dataset = allDatasets[index];
+      button.style.backgroundColor = allVisible ? dataset.backgroundColor : '#f3f4f6';
+      button.style.color = allVisible ? dataset.borderColor : '#9ca3af';
+      button.querySelector('span').textContent = allVisible ? '☑' : '☐';
+    });
+  });
+
+  // ========== GRÁFICO DE QUADRANTES (SCATTER) ==========
+  const ctxQuadrantes = document.getElementById('quadrantesChart').getContext('2d');
+
+  const quadrantPoints = {{ quadrant_points|tojson }};
+  const medianaReceita = {{ mediana_receita_escritorio_ano }};
+  const medianaNet = {{ mediana_net }};
+
+  console.log('Quadrant Points (já normalizados):', quadrantPoints);
+  console.log('Mediana Receita:', medianaReceita);
+  console.log('Mediana NET:', medianaNet);
+
+  // Os pontos JÁ VÊM NORMALIZADOS do backend (x e y são relativos à mediana)
+  // x_original e y_original contêm os valores absolutos para tooltips
+
+  // Separar pontos por quadrante (os pontos já estão com x, y normalizados)
+  const q1Points = quadrantPoints.filter(p => p.quadrant === 'Q1').map(p => ({
+    x: p.x,              // Já normalizado (receita - mediana_receita)
+    y: p.y,              // Já normalizado (net - mediana_net)
+    label: p.label,
+    distance: p.distance,
+    x_original: p.x_original,
+    y_original: p.y_original
+  }));
+
+  const q2Points = quadrantPoints.filter(p => p.quadrant === 'Q2').map(p => ({
+    x: p.x,
+    y: p.y,
+    label: p.label,
+    distance: p.distance,
+    x_original: p.x_original,
+    y_original: p.y_original
+  }));
+
+  const q3Points = quadrantPoints.filter(p => p.quadrant === 'Q3').map(p => ({
+    x: p.x,
+    y: p.y,
+    label: p.label,
+    distance: p.distance,
+    x_original: p.x_original,
+    y_original: p.y_original
+  }));
+
+  const q4Points = quadrantPoints.filter(p => p.quadrant === 'Q4').map(p => ({
+    x: p.x,
+    y: p.y,
+    label: p.label,
+    distance: p.distance,
+    x_original: p.x_original,
+    y_original: p.y_original
+  }));
+
+  // Plugin personalizado para desenhar zonas de proximidade e linhas de referência
+  const referenceLinePlugin = {
+    id: 'referenceLines',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea: { left, right, top, bottom }, scales: { x, y } } = chart;
+
+      // Desenhar backgrounds dos quadrantes com opacidade
+      const centerX = x.getPixelForValue(0);
+      const centerY = y.getPixelForValue(0);
+
+      // Q3 - Potencial (superior esquerdo) - Amarelo
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.03)';
+      ctx.fillRect(left, top, centerX - left, centerY - top);
+
+      // Q1 - Estrelas (superior direito) - Verde
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.03)';
+      ctx.fillRect(centerX, top, right - centerX, centerY - top);
+
+      // Q4 - Desenvolver (inferior esquerdo) - Cinza
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.03)';
+      ctx.fillRect(left, centerY, centerX - left, bottom - centerY);
+
+      // Q2 - Promissores (inferior direito) - Azul
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.03)';
+      ctx.fillRect(centerX, centerY, right - centerX, bottom - centerY);
+
+      // Desenhar círculos concêntricos de proximidade (zona de transição)
+      const maxRadius = Math.min(right - centerX, centerY - top);
+
+      // Círculo de 25% do raio máximo (muito perto de mudar)
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, maxRadius * 0.25, 0, 2 * Math.PI);
+      ctx.stroke();
+
+      // Círculo de 50% do raio máximo (perto de mudar)
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.15)';
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, maxRadius * 0.5, 0, 2 * Math.PI);
+      ctx.stroke();
+    },
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea: { left, right, top, bottom }, scales: { x, y } } = chart;
+
+      // Linha vertical (eixo Y - receita mediana)
+      const xPos = x.getPixelForValue(0);
+      ctx.save();
+      ctx.strokeStyle = 'rgb(59, 130, 246)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(xPos, top);
+      ctx.lineTo(xPos, bottom);
+      ctx.stroke();
+      ctx.restore();
+
+      // Linha horizontal (eixo X - NET mediana)
+      const yPos = y.getPixelForValue(0);
+      ctx.save();
+      ctx.strokeStyle = 'rgb(168, 85, 247)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(left, yPos);
+      ctx.lineTo(right, yPos);
+      ctx.stroke();
+      ctx.restore();
+
+      // Desenhar ponto central (interseção das medianas)
+      ctx.save();
+      ctx.fillStyle = 'rgb(239, 68, 68)';
+      ctx.beginPath();
+      ctx.arc(xPos, yPos, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  new Chart(ctxQuadrantes, {
+    type: 'scatter',
+    plugins: [referenceLinePlugin],
+    data: {
+      datasets: [
+        {
+          label: 'Q1 - Estrelas ⭐',
+          data: q1Points,
+          backgroundColor: 'rgba(16, 185, 129, 0.7)',
+          borderColor: 'rgb(16, 185, 129)',
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointStyle: 'circle'
+        },
+        {
+          label: 'Q2 - Promissores 🚀',
+          data: q2Points,
+          backgroundColor: 'rgba(59, 130, 246, 0.7)',
+          borderColor: 'rgb(59, 130, 246)',
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointStyle: 'circle'
+        },
+        {
+          label: 'Q3 - Potencial 💎',
+          data: q3Points,
+          backgroundColor: 'rgba(245, 158, 11, 0.7)',
+          borderColor: 'rgb(245, 158, 11)',
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointStyle: 'circle'
+        },
+        {
+          label: 'Q4 - Desenvolver 🌱',
+          data: q4Points,
+          backgroundColor: 'rgba(148, 163, 184, 0.7)',
+          borderColor: 'rgb(148, 163, 184)',
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointStyle: 'circle'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            usePointStyle: true,
+            padding: 15,
+            font: {
+              size: 12,
+              weight: '500'
+            }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.95)',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: 'rgba(255, 255, 255, 0.3)',
+          borderWidth: 2,
+          padding: 16,
+          displayColors: true,
+          titleFont: {
+            size: 14,
+            weight: 'bold'
+          },
+          bodyFont: {
+            size: 12
+          },
+          callbacks: {
+            title: function(context) {
+              return context[0].raw.label || 'Cliente';
+            },
+            label: function(context) {
+              const point = context.raw;
+              const distance = point.distance || 0;
+
+              // Determinar proximidade
+              let proximidade = '';
+              if (distance < 50000) {
+                proximidade = '🔴 Muito perto de mudar de quadrante!';
+              } else if (distance < 150000) {
+                proximidade = '🟡 Próximo da transição';
+              } else {
+                proximidade = '🟢 Estável no quadrante';
+              }
+
+              return [
+                '',
+                '💰 Receita YTD: ' + point.x_original.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                }),
+                '📊 NET Total: ' + point.y_original.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                }),
+                '',
+                '📍 Distância da mediana: ' + distance.toLocaleString('pt-BR', {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                }),
+                proximidade
+              ];
+            },
+            footer: function(context) {
+              const point = context[0].raw;
+              const diffReceita = point.x_original - medianaReceita;
+              const diffNet = point.y_original - medianaNet;
+
+              return [
+                '─────────────────────',
+                'Diferença vs. Mediana:',
+                'Receita: ' + (diffReceita >= 0 ? '+' : '') + diffReceita.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                }),
+                'NET: ' + (diffNet >= 0 ? '+' : '') + diffNet.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                })
+              ];
+            }
+          },
+          footerColor: 'rgba(156, 163, 175, 1)',
+          footerFont: {
+            size: 11,
+            weight: 'normal'
           }
         }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          position: 'bottom',
+          title: {
+            display: true,
+            text: `← Abaixo Mediana (${medianaReceita.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL', minimumFractionDigits: 0})}) | Acima Mediana →`,
+            font: {
+              size: 13,
+              weight: 'bold'
+            },
+            color: '#374151'
+          },
+          ticks: {
+            callback: function(value) {
+              const sign = value >= 0 ? '+' : '';
+              return sign + 'R$ ' + (value / 1000).toFixed(0) + 'k';
+            },
+            color: '#6B7280',
+            font: {
+              size: 11
+            }
+          },
+          grid: {
+            color: function(context) {
+              // Destacar o eixo central (valor 0)
+              return context.tick.value === 0 ? 'rgba(59, 130, 246, 0.3)' : 'rgba(0, 0, 0, 0.05)';
+            },
+            lineWidth: function(context) {
+              return context.tick.value === 0 ? 2 : 1;
+            },
+            drawBorder: false
+          }
+        },
+        y: {
+          type: 'linear',
+          position: 'left',
+          title: {
+            display: true,
+            text: `↓ Abaixo Mediana (${medianaNet.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL', minimumFractionDigits: 0})}) | Acima Mediana ↑`,
+            font: {
+              size: 13,
+              weight: 'bold'
+            },
+            color: '#374151'
+          },
+          ticks: {
+            callback: function(value) {
+              const sign = value >= 0 ? '+' : '';
+              return sign + 'R$ ' + (value / 1000).toFixed(0) + 'k';
+            },
+            color: '#6B7280',
+            font: {
+              size: 11
+            }
+          },
+          grid: {
+            color: function(context) {
+              // Destacar o eixo central (valor 0)
+              return context.tick.value === 0 ? 'rgba(168, 85, 247, 0.3)' : 'rgba(0, 0, 0, 0.05)';
+            },
+            lineWidth: function(context) {
+              return context.tick.value === 0 ? 2 : 1;
+            },
+            drawBorder: false
+          }
+        }
+      },
+      interaction: {
+        mode: 'point',
+        intersect: true
       }
     }
   });

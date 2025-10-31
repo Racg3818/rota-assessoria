@@ -168,10 +168,12 @@ def _norm_name(s: str) -> str:
 
 
 # ---------------- consultas com filtro por usuário ----------------
+@cached_by_user('dashboard_clientes_otimizado', timeout=180)  # Cache de 3 minutos
 def _fetch_clientes_otimizado():
     """
     Busca clientes com dados otimizados para o dashboard.
     Reduz consultas separadas ao Supabase.
+    Cache: 3 minutos (TTL=180s)
     """
     supabase = _get_supabase()
     if not supabase:
@@ -304,6 +306,7 @@ def salvar_meta_deprecated():
     return redirect(url_for("dashboard.index"))
 
 
+@cached_by_user('receita_ytd_por_cliente', timeout=300)  # Cache de 5 minutos
 def _receita_ytd_por_cliente(clientes, *, force_base_table: bool = False):
     from collections import defaultdict
     from datetime import datetime
@@ -817,10 +820,12 @@ def _receita_escritorio_recorrente(clientes) -> float:
     return receita_escritorio_rec
 
 
+@cached_by_user('receita_escritorio_total_mes', timeout=300)  # Cache de 5 minutos
 def _receita_escritorio_total_mes(clientes):
     """
     Calcula a receita total do escritório no mês atual:
     Receita Ativa (alocações EFETIVADAS) + Receita Recorrente (calculada a partir da receita assessor) + Bônus
+    Cache: 5 minutos (TTL=300s)
     """
     receita_ativa = _receita_escritorio_mes_atual_via_alocacoes()
     receita_recorrente = _receita_escritorio_recorrente(clientes)
@@ -961,69 +966,42 @@ def _calcular_roa(receita_escritorio_mes: float, clientes) -> float:
 
 
 
-def _historico_receita_passiva_assessor() -> list:
+@cached_by_user('historico_receita_passiva', timeout=600)  # Cache de 10 minutos
+def _historico_receita_passiva_assessor() -> dict:
     """
-    Busca o histórico da receita passiva (assessor) mês a mês.
-    Retorna lista de dicionários: [{"mes": "2025-01", "valor": 1500.0}, ...]
+    Busca o histórico da receita passiva (assessor) mês a mês, segregado por produto.
+    Retorna dicionário: {
+        "total": [{"mes": "2025-01", "receita": 1500.0}, ...],
+        "por_produto": {
+            "Produto A": [{"mes": "2025-01", "receita": 500.0}, ...],
+            "Produto B": [{"mes": "2025-01", "receita": 1000.0}, ...],
+        }
+    }
+    🚀 OTIMIZAÇÃO: Reduzido para 12 meses e com cache de 10 minutos
     """
     current_app.logger.info("HIST_RECEITA_PASSIVA: INICIANDO função")
 
     supabase = _get_supabase()
     if not supabase:
         current_app.logger.info("HIST_RECEITA_PASSIVA: Supabase não disponível")
-        return []
-    
+        return {"total": [], "por_produto": {}}
+
     import json
     from collections import defaultdict
-    
+
     uid = _current_user_id()
     current_app.logger.info("HIST_RECEITA_PASSIVA: User ID: %s", uid)
     if not uid:
         current_app.logger.info("HIST_RECEITA_PASSIVA: Sem user_id")
-        return []
-    
+        return {"total": [], "por_produto": {}}
+
     try:
-        # Buscar TODAS as receitas do usuário com paginação
-        all_receitas = []
-        page_size = 1000
-        # 🚀 OTIMIZAÇÃO: Limitar busca aos últimos 24 meses (reduz volume drasticamente)
+        # 🚀 OTIMIZAÇÃO CRÍTICA: Limitar busca aos últimos 12 meses (reduz volume drasticamente)
         from datetime import datetime, timedelta
         hoje = datetime.now()
-        data_limite = (hoje - timedelta(days=730)).strftime('%Y-%m')  # 24 meses atrás
+        data_limite = (hoje - timedelta(days=365)).strftime('%Y-%m')  # 12 meses atrás
 
-        offset = 0
-        max_iterations = 50  # Segurança: máximo 50 páginas (50k registros)
-        iterations = 0
-
-        while iterations < max_iterations:
-            res_receitas = (supabase.table("receita_itens")
-                          .select("data_ref, valor_liquido, produto, familia")
-                          .eq("user_id", uid)
-                          .gte("data_ref", data_limite)  # 🚀 FILTRO: apenas últimos 24 meses
-                          .order("id")
-                          .range(offset, offset + page_size - 1)
-                          .execute())
-
-            if not res_receitas.data:
-                break
-
-            all_receitas.extend(res_receitas.data)
-            current_app.logger.info("HIST_RECEITA_PASSIVA: Página offset %d - %d registros", offset, len(res_receitas.data))
-
-            # Se a página retornou menos que page_size, é a última página
-            if len(res_receitas.data) < page_size:
-                break
-
-            offset += page_size
-            iterations += 1
-        
-        current_app.logger.info("HIST_RECEITA_PASSIVA: TOTAL de receitas encontradas: %d", len(all_receitas))
-        
-        if not all_receitas:
-            current_app.logger.info("HIST_RECEITA_PASSIVA: Nenhuma receita encontrada")
-            return []
-        
-        # Buscar categorias selecionadas - mesma lógica
+        # Buscar categorias selecionadas PRIMEIRO (antes de carregar todos os registros)
         user_session = session.get("user", {})
         user_key = (user_session.get("email") or user_session.get("nome") or "anon").strip().lower()
 
@@ -1043,7 +1021,7 @@ def _historico_receita_passiva_assessor() -> list:
                         .eq("key", "recorrencia_produtos")
                         .limit(1)
                         .execute())
-        
+
         selected_set = set()
         if res_prefs.data:
             categorias_value = res_prefs.data[0].get("value")
@@ -1055,74 +1033,105 @@ def _historico_receita_passiva_assessor() -> list:
                     pass
             elif isinstance(categorias_value, list):
                 selected_set = set(categorias_value)
-        
+
         current_app.logger.info("HIST_RECEITA_PASSIVA: Produtos selecionados: %s", list(selected_set))
-        
-        # Agrupar por mês
+
+        # 🚀 OTIMIZAÇÃO: Buscar com paginação reduzida e processar em streaming
+        all_receitas = []
+        page_size = 1000
+        offset = 0
+        max_iterations = 20  # 🚀 Reduzido de 50 para 20 (máx 20k registros em 12 meses)
+        iterations = 0
+
+        while iterations < max_iterations:
+            res_receitas = (supabase.table("receita_itens")
+                          .select("data_ref, valor_liquido, produto, familia")
+                          .eq("user_id", uid)
+                          .gte("data_ref", data_limite)  # 🚀 FILTRO: apenas últimos 12 meses
+                          .order("data_ref")  # 🚀 Ordenar por data para melhor índice
+                          .range(offset, offset + page_size - 1)
+                          .execute())
+
+            if not res_receitas.data:
+                break
+
+            all_receitas.extend(res_receitas.data)
+
+            # Se a página retornou menos que page_size, é a última página
+            if len(res_receitas.data) < page_size:
+                break
+
+            offset += page_size
+            iterations += 1
+
+        current_app.logger.info("HIST_RECEITA_PASSIVA: TOTAL de receitas encontradas: %d", len(all_receitas))
+
+        if not all_receitas:
+            current_app.logger.info("HIST_RECEITA_PASSIVA: Nenhuma receita encontrada")
+            return {"total": [], "por_produto": {}}
+
+        # Agrupar por mês E por produto (processamento em memória otimizado)
         receita_por_mes = defaultdict(float)
-        total_processados = 0
-        total_incluidos = 0
-        
+        receita_por_produto_e_mes = defaultdict(lambda: defaultdict(float))
+
+        def _is_admin_family(fam):
+            fam_lower = fam.lower()
+            return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
+
         for receita in all_receitas:
-            total_processados += 1
             data_ref = receita.get("data_ref", "")
             if not data_ref:
                 continue
-                
+
             mes = data_ref[:7]  # YYYY-MM
             produto = (receita.get("produto") or "").strip()
             familia = (receita.get("familia") or "").strip()
             val_liq = _to_float(receita.get("valor_liquido"))
-            
-            # Aplicar mesma lógica da receita passiva
-            def _is_admin_family(fam):
-                fam_lower = fam.lower()
-                return any(x in fam_lower for x in ["admin", "corretagem", "custódia", "escritório"])
-            
-            is_admin = _is_admin_family(familia)
-            if is_admin:
-                if total_processados <= 5:
-                    current_app.logger.info("HIST_RECEITA_PASSIVA: Registro %d IGNORADO (admin) - Mês: %s, Família: '%s', Produto: '%s', Valor: %s", 
-                                           total_processados, mes, familia, produto, val_liq)
-                continue  # Ignorar famílias administrativas
-            
+
+            # Ignorar famílias administrativas
+            if _is_admin_family(familia):
+                continue
+
             # Regra da receita recorrente
             produto_presente = bool(produto)
-            incluir = False
-            
+
             if not produto_presente:
-                # Se não tem produto, conta como recorrente
+                # Se não tem produto, conta como recorrente e agrupa como "Sem Produto"
                 receita_por_mes[mes] += val_liq
-                incluir = True
-                total_incluidos += 1
+                receita_por_produto_e_mes["Sem Produto"][mes] += val_liq
             else:
                 # Se tem produto, só conta se estiver nas categorias selecionadas
                 if not selected_set or (produto in selected_set):
                     receita_por_mes[mes] += val_liq
-                    incluir = True
-                    total_incluidos += 1
-            
-            if total_processados <= 10:  # Log dos primeiros 10 registros
-                current_app.logger.info("HIST_RECEITA_PASSIVA: Registro %d - Mês: %s, Família: '%s', Produto: '%s', Valor: %s, Incluído: %s", 
-                                       total_processados, mes, familia, produto, val_liq, incluir)
-        
-        current_app.logger.info("HIST_RECEITA_PASSIVA: Processados %d registros, incluídos %d", total_processados, total_incluidos)
-        
-        # Converter para lista ordenada
-        historico = []
-        for mes in sorted(receita_por_mes.keys()):
-            historico.append({
-                "mes": mes,
-                "receita": receita_por_mes[mes]
-            })
-        
-        current_app.logger.info("HIST_RECEITA_PASSIVA: %d meses processados", len(historico))
-        current_app.logger.info("HIST_RECEITA_PASSIVA: Dados finais: %s", historico)
-        return historico
-        
+                    receita_por_produto_e_mes[produto][mes] += val_liq
+
+        # Converter para formato final
+        # 1. Total (soma de todos os produtos)
+        historico_total = [
+            {"mes": mes, "receita": receita_por_mes[mes]}
+            for mes in sorted(receita_por_mes.keys())
+        ]
+
+        # 2. Por produto
+        historico_por_produto = {}
+        for produto, meses_dict in receita_por_produto_e_mes.items():
+            historico_por_produto[produto] = [
+                {"mes": mes, "receita": meses_dict[mes]}
+                for mes in sorted(meses_dict.keys())
+            ]
+
+        resultado = {
+            "total": historico_total,
+            "por_produto": historico_por_produto
+        }
+
+        current_app.logger.info("HIST_RECEITA_PASSIVA: %d meses processados, %d produtos encontrados",
+                               len(historico_total), len(historico_por_produto))
+        return resultado
+
     except Exception as e:
         current_app.logger.error("HIST_RECEITA_PASSIVA: Erro: %s", e)
-        return []
+        return {"total": [], "por_produto": {}}
 
 
 def _penetracao_base_xp_mb_mes(clientes) -> tuple[tuple[float, int, int], tuple[float, int, int]]:
@@ -1243,12 +1252,14 @@ def _penetracao_base_xp_mb_mes(clientes) -> tuple[tuple[float, int, int], tuple[
     return (xp_pct, xp_numerador, denominador), (mb_pct, mb_numerador, denominador)
 
 
+@cached_by_user('penetracao_base_mes', timeout=300)  # Cache de 5 minutos
 def _penetracao_base_mes(clientes) -> tuple[float, int, int]:
     """
     % Penetração de base no mês vigente (função mantida para compatibilidade).
     Numerador: nº de clientes (únicos) que têm pelo menos 1 alocação
                EFETIVADA e com produto.em_campanha = 'Sim'/true no mês vigente.
     Denominador: nº de clientes com NET > 0.
+    Cache: 5 minutos (TTL=300s)
     """
     supabase = _get_supabase()
     if not supabase:
@@ -1394,10 +1405,12 @@ def debug():
     
     return f"<pre>{debug_info}</pre>"
 
+@cached_by_user('dashboard_metrics', timeout=300)  # Cache de 5 minutos
 def _calcular_metricas_dashboard():
     """
     Calcula todas as métricas do dashboard de uma vez para otimizar performance.
     Esta função é cacheada para evitar recálculos desnecessários.
+    Cache: 5 minutos (TTL=300s)
     """
     mes, meta = _meta_do_mes()
     clientes = _fetch_clientes_otimizado()
@@ -1595,14 +1608,15 @@ def index():
         net = _to_float(c.get("net_total"))
         receita = _to_float(totais_receita_by_id.get(cid, 0.0))
 
+        # Classificação dos quadrantes baseada nas medianas
         if receita >= mediana_receita_ytd and net >= mediana_net:
-            quad = "Q1"; color = "#10b981"
+            quad = "Q1"; color = "#10b981"  # Estrelas: alta receita, alto NET
         elif receita >= mediana_receita_ytd and net < mediana_net:
-            quad = "Q2"; color = "#3b82f6"
+            quad = "Q2"; color = "#3b82f6"  # Promissores: alta receita, baixo NET
         elif receita < mediana_receita_ytd and net >= mediana_net:
-            quad = "Q3"; color = "#f59e0b"
+            quad = "Q3"; color = "#f59e0b"  # Potencial: baixa receita, alto NET
         else:
-            quad = "Q4"; color = "#94a3b8"
+            quad = "Q4"; color = "#94a3b8"  # Desenvolver: baixa receita, baixo NET
 
         counts[quad] += 1
 
@@ -1617,7 +1631,24 @@ def index():
         }
         clientes_por_quadrante[quad].append(cliente_info)
 
-        pontos.append({"x": receita, "y": net, "label": nome, "quadrant": quad, "color": color})
+        # IMPORTANTE: Enviar coordenadas JÁ NORMALIZADAS (relativas à mediana)
+        # para que o gráfico mostre o centro (0,0) como os valores medianos
+        x_normalized = receita - mediana_receita_ytd
+        y_normalized = net - mediana_net
+
+        # Calcular distância euclidiana do centro (mediana)
+        distance = (x_normalized ** 2 + y_normalized ** 2) ** 0.5
+
+        pontos.append({
+            "x": x_normalized,      # Receita relativa à mediana
+            "y": y_normalized,      # NET relativo à mediana
+            "x_original": receita,  # Valor absoluto da receita (para tooltip)
+            "y_original": net,      # Valor absoluto do NET (para tooltip)
+            "label": nome,
+            "quadrant": quad,
+            "color": color,
+            "distance": distance    # Distância do centro (mediana)
+        })
 
     quadrant_pct = {k: (counts[k] / total_clientes * 100.0) for k in counts.keys()}
 
