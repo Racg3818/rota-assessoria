@@ -1059,6 +1059,11 @@
                     <span x-show="sidebarOpen" class="transition-opacity duration-200">Asset Allocation</span>
                 </a>
 
+                <a href="/clientes/evolucao-carteira" class="nav-item flex items-center gap-3 px-4 py-3 ml-6 rounded-xl text-gray-600 hover:bg-gray-50 text-sm {% if request.path.startswith('/clientes/evolucao-carteira') %}active{% endif %}">
+                    <div class="w-4 h-4 flex-shrink-0">📈</div>
+                    <span x-show="sidebarOpen" class="transition-opacity duration-200">Evolução de Carteira</span>
+                </a>
+
                 <div x-show="sidebarOpen" class="px-3 mt-6 mb-4">
                     <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Gestão</p>
                 </div>

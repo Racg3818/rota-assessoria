@@ -1,0 +1,1110 @@
+{% extends "base.html" %}
+
+{% block title %}Evolução de Carteira - Rota Assessoria{% endblock %}
+{% block subtitle %}Evolução de Carteira{% endblock %}
+
+{% block content %}
+<div x-data="evolucaoCarteira()" x-init="init()" class="space-y-6">
+    <!-- Cabeçalho com Seletor de Período (Ciclo Nov-Out) -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h1 class="typography-h2 mb-2">Evolução de Carteira</h1>
+            <p class="typography-body-sm text-gray-600">Ciclo de avaliação: Novembro a Outubro</p>
+        </div>
+
+        <div class="flex gap-3">
+            <select
+                x-model="periodoSelecionado"
+                @change="mudarPeriodo()"
+                class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+                <template x-for="(mes, index) in mesesCiclo" :key="index">
+                    <option
+                        :value="index"
+                        x-text="mes.nome + '/' + mes.ano"
+                        :selected="mes.ano == anoAtual && mes.mes == mesAtual"
+                    ></option>
+                </template>
+            </select>
+        </div>
+    </div>
+
+    <!-- Cards de Métricas -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <!-- Captação Mensal -->
+        <div class="card-success p-6 rounded-2xl shadow-card">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-success-500 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+            </div>
+            <h3 class="typography-body-sm text-success-700 font-medium mb-2">Captação Mensal</h3>
+            <p class="typography-currency text-success-900" x-text="formatarMoeda(metricas.total_captacao)">R$ 0,00</p>
+        </div>
+
+        <!-- % Churn Previsto -->
+        <div class="card-warning p-6 rounded-2xl shadow-card">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-warning-500 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"></path>
+                    </svg>
+                </div>
+            </div>
+            <h3 class="typography-body-sm text-warning-700 font-medium mb-2">% Churn Previsto</h3>
+            <p class="typography-currency text-warning-900" x-text="metricas.perc_churn.toFixed(2) + '%'">0.00%</p>
+            <p class="typography-caption text-warning-600 mt-2" x-text="formatarMoeda(metricas.total_churn) + ' de churn'"></p>
+        </div>
+
+        <!-- % Meta SVN -->
+        <div class="card-primary p-6 rounded-2xl shadow-card">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-primary-500 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+            </div>
+            <h3 class="typography-body-sm text-primary-700 font-medium mb-2">% Meta SVN Atingida</h3>
+            <p class="typography-currency text-primary-900" x-text="metricas.perc_meta_svn.toFixed(2) + '%'">0.00%</p>
+            <p class="typography-caption text-primary-600 mt-2" x-text="formatarMoeda(metricas.total_captacao) + ' de ' + formatarMoeda(metricas.meta_svn)"></p>
+        </div>
+
+        <!-- % Meta Pessoal -->
+        <div class="card-revenue p-6 rounded-2xl shadow-card">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-revenue-500 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                </div>
+            </div>
+            <h3 class="typography-body-sm text-revenue-700 font-medium mb-2">% Meta Pessoal Atingida</h3>
+            <p class="typography-currency text-revenue-900" x-text="metricas.perc_meta_pessoal.toFixed(2) + '%'">0.00%</p>
+            <p class="typography-caption text-revenue-600 mt-2" x-text="formatarMoeda(metricas.total_captacao) + ' de ' + formatarMoeda(metricas.meta_pessoal)"></p>
+        </div>
+    </div>
+
+    <!-- Alertas e Insights -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Alerta de Captação Necessária -->
+        <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-2xl shadow-card border border-blue-200">
+            <div class="flex items-start gap-4">
+                <div class="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div class="flex-1">
+                    <h3 class="typography-h4 text-blue-900 mb-2">Ritmo de Captação</h3>
+                    <p class="typography-body-sm text-blue-700 mb-4">
+                        Para atingir sua meta pessoal, você precisa captar em média:
+                    </p>
+                    <div class="bg-white/70 px-6 py-4 rounded-xl border border-blue-300">
+                        <p class="typography-h2 text-blue-900 mb-1" x-text="formatarMoeda(calcularCaptacaoSemanalNecessaria())">R$ 0,00</p>
+                        <p class="typography-caption text-blue-600">por semana nas <span x-text="calcularSemanasRestantes()"></span> semanas restantes</p>
+                    </div>
+                    <div class="mt-4 flex items-center gap-2" x-show="avaliarRitmo() !== 'neutro'">
+                        <div class="flex-1">
+                            <div class="h-2 bg-blue-200 rounded-full overflow-hidden">
+                                <div
+                                    class="h-full transition-all duration-500"
+                                    :class="{
+                                        'bg-green-500': avaliarRitmo() === 'bom',
+                                        'bg-yellow-500': avaliarRitmo() === 'atencao',
+                                        'bg-red-500': avaliarRitmo() === 'critico'
+                                    }"
+                                    :style="'width: ' + Math.min(metricas.perc_meta_pessoal, 100) + '%'"
+                                ></div>
+                            </div>
+                        </div>
+                        <span
+                            class="typography-caption font-semibold whitespace-nowrap"
+                            :class="{
+                                'text-green-600': avaliarRitmo() === 'bom',
+                                'text-yellow-600': avaliarRitmo() === 'atencao',
+                                'text-red-600': avaliarRitmo() === 'critico'
+                            }"
+                            x-text="metricas.perc_meta_pessoal.toFixed(1) + '%'"
+                        ></span>
+                    </div>
+                    <p
+                        class="typography-caption mt-2 font-medium"
+                        :class="{
+                            'text-green-700': avaliarRitmo() === 'bom',
+                            'text-yellow-700': avaliarRitmo() === 'atencao',
+                            'text-red-700': avaliarRitmo() === 'critico'
+                        }"
+                        x-text="obterMensagemRitmo()"
+                    ></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Forecast Final do Mês -->
+        <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl shadow-card border border-purple-200">
+            <div class="flex items-start gap-4">
+                <div class="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+                <div class="flex-1">
+                    <h3 class="typography-h4 text-purple-900 mb-2">Forecast do Mês</h3>
+                    <p class="typography-body-sm text-purple-700 mb-4">
+                        Projeção considerando captação + forecast - churn:
+                    </p>
+                    <div class="bg-white/70 px-6 py-4 rounded-xl border border-purple-300">
+                        <p class="typography-h2 text-purple-900 mb-1" x-text="formatarMoeda(calcularForecastTotal())">R$ 0,00</p>
+                        <p class="typography-caption text-purple-600">resultado líquido projetado</p>
+                    </div>
+                    <template x-if="metricas.total_churn > 0">
+                        <div class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                                <p class="typography-caption text-red-800 font-semibold">Impacto do Churn</p>
+                            </div>
+                            <p class="typography-caption text-red-700">
+                                Churn previsto de <span class="font-semibold" x-text="formatarMoeda(metricas.total_churn)"></span>
+                                (<span x-text="metricas.perc_churn.toFixed(2) + '%'"></span> do NET)
+                            </p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gráfico de Evolução -->
+    <div class="bg-white p-8 rounded-2xl shadow-card">
+        <h2 class="typography-h3 mb-6">Evolução Semanal - Meta vs Realizado</h2>
+        <div class="relative" style="height: 400px;">
+            <canvas id="graficoEvolucao"></canvas>
+        </div>
+    </div>
+
+    <!-- Gráfico de Evolução do NET -->
+    <div class="bg-gradient-to-br from-purple-50 to-blue-50 p-8 rounded-2xl shadow-card border border-purple-200">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h2 class="typography-h3 text-purple-900">Projeção de Evolução do NET</h2>
+                <p class="typography-body-sm text-purple-700 mt-2">
+                    Evolução do NET total considerando captação + forecast - churn + crescimento orgânico
+                </p>
+            </div>
+            <div class="flex gap-4">
+                <div class="bg-white/70 px-6 py-3 rounded-xl border border-purple-300">
+                    <p class="typography-caption text-purple-700 font-medium">NET Atual</p>
+                    <p class="typography-h4 text-purple-900" x-text="formatarMoeda({{ net_total }})">R$ 0,00</p>
+                </div>
+                <div class="bg-gradient-to-br from-indigo-100 to-purple-100 px-6 py-3 rounded-xl border-2 border-indigo-400">
+                    <p class="typography-caption text-indigo-800 font-medium">NET Previsto (Final do Mês)</p>
+                    <p class="typography-h4 text-indigo-900" x-text="formatarMoeda(calcularNetFinalPrevisto())">R$ 0,00</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white/50 p-6 rounded-xl">
+            <div class="relative" style="height: 400px;">
+                <canvas id="graficoNet"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção de Metas Mensais -->
+    <div class="bg-gradient-to-br from-blue-50 to-indigo-50 p-8 rounded-2xl shadow-card border border-blue-200">
+        <h3 class="typography-h3 text-indigo-900 mb-6">Metas do Mês</h3>
+
+        <form @submit.prevent="salvarMetas()" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Meta Captação SVN -->
+                <div>
+                    <label class="typography-label block mb-2">Meta de Captação SVN</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">R$</span>
+                        <input
+                            type="text"
+                            x-model="metas.meta_captacao_svn"
+                            @input="formatarCampoMoeda($event)"
+                            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                            placeholder="0,00"
+                        >
+                    </div>
+                </div>
+
+                <!-- Meta Captação Pessoal -->
+                <div>
+                    <label class="typography-label block mb-2">Meta de Captação Pessoal</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">R$</span>
+                        <input
+                            type="text"
+                            x-model="metas.meta_captacao_pessoal"
+                            @input="formatarCampoMoeda($event)"
+                            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                            placeholder="0,00"
+                        >
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controle de Crescimento Orgânico -->
+            <div class="bg-white/50 p-6 rounded-xl">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div class="flex-1">
+                        <h4 class="typography-h5 text-indigo-900 mb-1">Crescimento Orgânico Anual</h4>
+                        <p class="typography-body-sm text-indigo-700">
+                            Percentual de crescimento esperado da sua carteira (0% - 20%)
+                        </p>
+                    </div>
+                    <div class="w-full md:w-1/3">
+                        <div class="flex items-center gap-4">
+                            <input
+                                type="range"
+                                min="0"
+                                max="20"
+                                step="0.5"
+                                x-model="metas.crescimento_organico_anual"
+                                class="flex-1 h-2 bg-indigo-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                            >
+                            <div class="w-20 text-right">
+                                <span class="typography-h4 text-indigo-900" x-text="parseFloat(metas.crescimento_organico_anual || 0).toFixed(1) + '%'">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botão Salvar Metas -->
+            <div class="flex justify-end">
+                <button
+                    type="submit"
+                    class="btn-primary px-6 py-3 rounded-lg flex items-center gap-2"
+                    :disabled="salvandoMetas"
+                >
+                    <svg x-show="!salvandoMetas" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <svg x-show="salvandoMetas" class="animate-spin w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span x-text="salvandoMetas ? 'Salvando...' : 'Salvar Metas'">Salvar Metas</span>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Formulário de Entrada de Dados Semanais -->
+    <div class="bg-white p-8 rounded-2xl shadow-card">
+        <h2 class="typography-h3 mb-6">Dados Semanais</h2>
+
+        <!-- Tabs de Semanas -->
+        <div class="flex border-b border-gray-200 mb-6 overflow-x-auto">
+            <template x-for="sem in [1, 2, 3, 4, 5]" :key="sem">
+                <button
+                    @click="semanaAtiva = sem"
+                    :class="{
+                        'border-b-2 border-primary-500 text-primary-600': semanaAtiva === sem,
+                        'text-gray-500 hover:text-gray-700': semanaAtiva !== sem
+                    }"
+                    class="px-6 py-3 font-medium text-sm whitespace-nowrap transition-colors"
+                    x-text="'Semana ' + sem"
+                >
+                </button>
+            </template>
+        </div>
+
+        <!-- Formulário da Semana Ativa -->
+        <form @submit.prevent="salvarSemana()" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Captação da Semana -->
+                <div>
+                    <label class="typography-label block mb-2">Captação da Semana</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">R$</span>
+                        <input
+                            type="text"
+                            x-model="semanas[semanaAtiva - 1].captacao_semana"
+                            @input="formatarCampoMoeda($event)"
+                            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            placeholder="0,00"
+                        >
+                    </div>
+                </div>
+
+                <!-- Forecast da Semana -->
+                <div>
+                    <label class="typography-label block mb-2">Forecast da Semana</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">R$</span>
+                        <input
+                            type="text"
+                            x-model="semanas[semanaAtiva - 1].forecast_semana"
+                            @input="formatarCampoMoeda($event)"
+                            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            placeholder="0,00"
+                        >
+                    </div>
+                </div>
+
+                <!-- Churn Esperado -->
+                <div>
+                    <label class="typography-label block mb-2">Churn Esperado da Semana</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">R$</span>
+                        <input
+                            type="text"
+                            x-model="semanas[semanaAtiva - 1].churn_semana"
+                            @input="formatarCampoMoeda($event)"
+                            class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            placeholder="0,00"
+                        >
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botão Salvar -->
+            <div class="flex justify-end gap-3">
+                <button
+                    type="button"
+                    @click="limparSemana()"
+                    class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                    Limpar
+                </button>
+                <button
+                    type="submit"
+                    class="btn-success px-6 py-3 rounded-lg flex items-center gap-2"
+                    :disabled="salvando"
+                >
+                    <svg x-show="!salvando" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <svg x-show="salvando" class="animate-spin w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span x-text="salvando ? 'Salvando...' : 'Salvar Dados'">Salvar Dados</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function evolucaoCarteira() {
+    return {
+        // Estado
+        anoAtual: {{ ano }},
+        mesAtual: {{ mes }},
+        semanaAtiva: 1,
+        periodoSelecionado: 0,
+        salvando: false,
+        salvandoMetas: false,
+
+        // Dados
+        mesesCiclo: {{ meses_ciclo | tojson }},
+        semanas: [],
+        metas: {},
+        metricas: {
+            total_captacao: 0,
+            total_churn: 0,
+            perc_churn: 0,
+            perc_meta_svn: 0,
+            perc_meta_pessoal: 0,
+            meta_svn: 0,
+            meta_pessoal: 0
+        },
+
+        // Gráficos
+        grafico: null,
+        graficoNet: null,
+
+        // Inicialização
+        init() {
+            this.carregarDadosIniciais();
+            this.inicializarGrafico();
+            this.inicializarGraficoNet();
+            this.encontrarPeriodoAtual();
+        },
+
+        encontrarPeriodoAtual() {
+            // Encontrar o índice do mês/ano atual
+            const index = this.mesesCiclo.findIndex(m => m.ano == this.anoAtual && m.mes == this.mesAtual);
+            if (index >= 0) {
+                this.periodoSelecionado = index;
+            }
+        },
+
+        mudarPeriodo() {
+            const mesSelecionado = this.mesesCiclo[this.periodoSelecionado];
+            if (mesSelecionado) {
+                window.location.href = `/clientes/evolucao-carteira/?ano=${mesSelecionado.ano}&mes=${mesSelecionado.mes}`;
+            }
+        },
+
+        carregarDadosIniciais() {
+            // Dados do servidor
+            const semanasServidor = {{ semanas | tojson }};
+            const metasServidor = {{ metas | tojson }};
+            const metricasServidor = {{ metricas | tojson }};
+
+            // Função local para formatar valores
+            const formatarValor = (valor) => {
+                if (!valor || valor === 0) return '0';
+                const valorFloat = typeof valor === 'number' ? valor : parseFloat(valor);
+                if (isNaN(valorFloat)) return '0';
+
+                let valorFormatado = valorFloat.toFixed(2);
+                valorFormatado = valorFormatado.replace('.', ',');
+                valorFormatado = valorFormatado.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                return valorFormatado;
+            };
+
+            // Formatar valores monetários das semanas para exibição nos inputs
+            this.semanas = semanasServidor.map(semana => ({
+                ...semana,
+                captacao_semana: formatarValor(semana.captacao_semana),
+                forecast_semana: formatarValor(semana.forecast_semana),
+                churn_semana: formatarValor(semana.churn_semana)
+            }));
+
+            // Formatar valores monetários das metas para exibição nos inputs
+            this.metas = {
+                ...metasServidor,
+                meta_captacao_svn: formatarValor(metasServidor.meta_captacao_svn),
+                meta_captacao_pessoal: formatarValor(metasServidor.meta_captacao_pessoal),
+                crescimento_organico_anual: metasServidor.crescimento_organico_anual || 0
+            };
+
+            this.metricas = metricasServidor;
+
+            this.atualizarGrafico();
+        },
+
+        async salvarMetas() {
+            this.salvandoMetas = true;
+
+            const formData = new FormData();
+            formData.append('ano', this.anoAtual);
+            formData.append('mes', this.mesAtual);
+            formData.append('meta_captacao_svn', this.converterMoedaParaFloat(this.metas.meta_captacao_svn));
+            formData.append('meta_captacao_pessoal', this.converterMoedaParaFloat(this.metas.meta_captacao_pessoal));
+            formData.append('crescimento_organico_anual', this.metas.crescimento_organico_anual || 0);
+
+            try {
+                const response = await fetch('/clientes/evolucao-carteira/api/salvar-metas', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    this.mostrarMensagem('Metas salvas com sucesso!', 'success');
+                    // Aguarda 1 segundo e recarrega a página
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    this.mostrarMensagem(result.message || 'Erro ao salvar metas', 'error');
+                    this.salvandoMetas = false;
+                }
+            } catch (error) {
+                console.error('Erro ao salvar metas:', error);
+                this.mostrarMensagem('Erro ao salvar metas', 'error');
+                this.salvandoMetas = false;
+            }
+        },
+
+        async salvarSemana() {
+            this.salvando = true;
+
+            const semanaAtual = this.semanas[this.semanaAtiva - 1];
+
+            const formData = new FormData();
+            formData.append('ano', this.anoAtual);
+            formData.append('mes', this.mesAtual);
+            formData.append('semana', this.semanaAtiva);
+            formData.append('captacao_semana', this.converterMoedaParaFloat(semanaAtual.captacao_semana));
+            formData.append('forecast_semana', this.converterMoedaParaFloat(semanaAtual.forecast_semana));
+            formData.append('churn_semana', this.converterMoedaParaFloat(semanaAtual.churn_semana));
+
+            try {
+                const response = await fetch('/clientes/evolucao-carteira/api/salvar-semana', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    this.mostrarMensagem('Dados salvos com sucesso!', 'success');
+                    // Aguarda 1 segundo e recarrega a página
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    this.mostrarMensagem(result.message || 'Erro ao salvar dados', 'error');
+                    this.salvando = false;
+                }
+            } catch (error) {
+                console.error('Erro ao salvar semana:', error);
+                this.mostrarMensagem('Erro ao salvar dados', 'error');
+                this.salvando = false;
+            }
+        },
+
+        async atualizarMetricas() {
+            try {
+                const response = await fetch(`/clientes/evolucao-carteira/api/metricas?ano=${this.anoAtual}&mes=${this.mesAtual}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    this.metricas = result.metricas;
+                    this.atualizarGrafico();
+                    this.atualizarGraficoNet();
+                }
+            } catch (error) {
+                console.error('Erro ao atualizar métricas:', error);
+            }
+        },
+
+        limparSemana() {
+            const semanaAtual = this.semanas[this.semanaAtiva - 1];
+            semanaAtual.captacao_semana = '0';
+            semanaAtual.forecast_semana = '0';
+            semanaAtual.churn_semana = '0';
+        },
+
+        // Gráfico
+        inicializarGrafico() {
+            const ctx = document.getElementById('graficoEvolucao').getContext('2d');
+
+            const graficoData = {{ grafico_data | tojson }};
+
+            this.grafico = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: graficoData.labels,
+                    datasets: [
+                        {
+                            label: 'Meta Acumulada',
+                            data: graficoData.meta_acumulada,
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Captação Acumulada',
+                            data: graficoData.captacao_acumulada,
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Projeção (Captação + Forecast - Churn)',
+                            data: graficoData.projecao_acumulada,
+                            borderColor: 'rgb(168, 85, 247)',
+                            backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                            borderWidth: 3,
+                            borderDash: [5, 5],
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 14,
+                                    weight: '500'
+                                },
+                                padding: 20,
+                                usePointStyle: true
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: {
+                                size: 14,
+                                weight: 'bold'
+                            },
+                            bodyFont: {
+                                size: 13
+                            },
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' +
+                                           new Intl.NumberFormat('pt-BR', {
+                                               style: 'currency',
+                                               currency: 'BRL'
+                                           }).format(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return new Intl.NumberFormat('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL',
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 0
+                                    }).format(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        },
+
+        atualizarGrafico() {
+            if (!this.grafico) return;
+
+            // Recalcular dados do gráfico
+            const labels = [];
+            const captacaoAcumulada = [];
+            const projecaoAcumulada = [];
+            const metaAcumulada = [];
+
+            let acumuladoCaptacao = 0;
+            let acumuladoProjecao = 0;
+            const metaMensal = this.converterMoedaParaFloat(this.metas.meta_captacao_pessoal);
+
+            this.semanas.forEach((semana, index) => {
+                labels.push(`Semana ${semana.semana}`);
+
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                const forecast = this.converterMoedaParaFloat(semana.forecast_semana);
+                const churn = this.converterMoedaParaFloat(semana.churn_semana);
+
+                // Captação acumulada
+                acumuladoCaptacao += captacao;
+                captacaoAcumulada.push(acumuladoCaptacao);
+
+                // Projeção acumulada (captação + forecast - churn)
+                const projecaoSemana = captacao + forecast - churn;
+                acumuladoProjecao += projecaoSemana;
+                projecaoAcumulada.push(acumuladoProjecao);
+
+                // Meta acumulada
+                const metaProporcional = (metaMensal / 5) * (index + 1);
+                metaAcumulada.push(metaProporcional);
+            });
+
+            this.grafico.data.labels = labels;
+            this.grafico.data.datasets[0].data = metaAcumulada;
+            this.grafico.data.datasets[1].data = captacaoAcumulada;
+            this.grafico.data.datasets[2].data = projecaoAcumulada;
+            this.grafico.update();
+        },
+
+        // Gráfico de Evolução do NET
+        inicializarGraficoNet() {
+            const ctx = document.getElementById('graficoNet').getContext('2d');
+            const graficoNetData = {{ grafico_net_data | tojson }};
+
+            // Criar gradiente para as barras
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(139, 92, 246, 0.8)');
+            gradient.addColorStop(1, 'rgba(99, 102, 241, 0.6)');
+
+            this.graficoNet = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: graficoNetData.labels,
+                    datasets: [{
+                        label: 'NET Projetado',
+                        data: graficoNetData.net_projecao,
+                        backgroundColor: gradient,
+                        borderColor: 'rgb(139, 92, 246)',
+                        borderWidth: 2,
+                        borderRadius: 8,
+                        borderSkipped: false,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 14,
+                                    weight: '500'
+                                },
+                                padding: 20,
+                                usePointStyle: true,
+                                color: '#6b21a8'
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(107, 33, 168, 0.9)',
+                            padding: 12,
+                            titleFont: {
+                                size: 14,
+                                weight: 'bold'
+                            },
+                            bodyFont: {
+                                size: 13
+                            },
+                            callbacks: {
+                                label: function(context) {
+                                    return 'NET: ' + new Intl.NumberFormat('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL'
+                                    }).format(context.parsed.y);
+                                },
+                                afterLabel: function(context) {
+                                    const netInicial = graficoNetData.net_inicial;
+                                    const netProjetado = context.parsed.y;
+                                    const crescimento = netProjetado - netInicial;
+                                    const percentual = netInicial > 0 ? (crescimento / netInicial * 100) : 0;
+
+                                    return [
+                                        '',
+                                        'Crescimento: ' + new Intl.NumberFormat('pt-BR', {
+                                            style: 'currency',
+                                            currency: 'BRL'
+                                        }).format(crescimento),
+                                        'Variação: ' + percentual.toFixed(2) + '%'
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return new Intl.NumberFormat('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL',
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 0
+                                    }).format(value);
+                                },
+                                color: '#6b21a8',
+                                font: {
+                                    weight: '500'
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(139, 92, 246, 0.1)',
+                                drawBorder: false
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#6b21a8',
+                                font: {
+                                    weight: '500'
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        },
+
+        atualizarGraficoNet() {
+            if (!this.graficoNet) return;
+
+            const labels = [];
+            const netProjecao = [];
+            const netInicial = {{ net_total }};
+            let netAcumulado = netInicial;
+
+            // Obter crescimento orgânico anual e calcular o semanal
+            const crescimentoOrganicoAnual = parseFloat(this.metas.crescimento_organico_anual || 0);
+            const crescimentoSemanalPercent = (crescimentoOrganicoAnual / 100) / 52; // Por semana
+
+            this.semanas.forEach((semana) => {
+                labels.push(`Semana ${semana.semana}`);
+
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                const forecast = this.converterMoedaParaFloat(semana.forecast_semana);
+                const churn = this.converterMoedaParaFloat(semana.churn_semana);
+
+                // Crescimento orgânico sobre o NET atual
+                const crescimentoOrganicoSemana = netAcumulado * crescimentoSemanalPercent;
+
+                // Impacto total da semana
+                const impactoSemana = captacao + forecast - churn + crescimentoOrganicoSemana;
+                netAcumulado += impactoSemana;
+
+                netProjecao.push(netAcumulado);
+            });
+
+            this.graficoNet.data.labels = labels;
+            this.graficoNet.data.datasets[0].data = netProjecao;
+            this.graficoNet.update();
+        },
+
+        // Utilitários
+        formatarMoeda(valor) {
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(valor || 0);
+        },
+
+        formatarCampoMoeda(event) {
+            let valor = event.target.value;
+
+            // Captura o sinal negativo se existir
+            const isNegativo = valor.includes('-');
+
+            // Remove tudo exceto dígitos
+            valor = valor.replace(/\D/g, '');
+
+            // Converte para número e formata (sem divisão por 100)
+            if (valor) {
+                let numeroInteiro = parseInt(valor);
+                if (isNegativo) {
+                    numeroInteiro = -numeroInteiro;
+                }
+                // Formata com sinal negativo se necessário
+                valor = numeroInteiro.toLocaleString('pt-BR');
+                // Se o número é negativo, o toLocaleString já adiciona o sinal
+            } else if (isNegativo) {
+                // Se só digitou o sinal negativo, mantém ele
+                valor = '-';
+            }
+
+            event.target.value = valor;
+        },
+
+        converterMoedaParaFloat(valor) {
+            if (typeof valor === 'number') return valor;
+            if (!valor) return 0;
+
+            // Remove pontos (separadores de milhar) e substitui vírgula por ponto
+            // Preserva o sinal negativo para valores negativos
+            const valorLimpo = valor.toString().replace(/\./g, '').replace(',', '.');
+            return parseFloat(valorLimpo) || 0;
+        },
+
+        mostrarMensagem(mensagem, tipo) {
+            // Criar elemento de mensagem
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flash-message px-6 py-4 rounded-2xl border-l-4 ${
+                tipo === 'error'
+                    ? 'border-red-500 bg-red-50 text-red-800'
+                    : 'border-emerald-500 bg-emerald-50 text-emerald-800'
+            }`;
+            messageDiv.innerHTML = `
+                <div class="flex items-center gap-3">
+                    ${tipo === 'error'
+                        ? '<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                        : '<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                    }
+                    <span class="font-medium">${mensagem}</span>
+                </div>
+            `;
+
+            // Adicionar à página
+            const container = document.querySelector('.content-wrapper > .p-6');
+            container.insertBefore(messageDiv, container.firstChild);
+
+            // Remover após 5 segundos
+            setTimeout(() => {
+                messageDiv.style.animation = 'slideOutUp 0.5s ease-in forwards';
+                setTimeout(() => messageDiv.remove(), 500);
+            }, 5000);
+        },
+
+        // ============ FUNÇÕES DE ALERTAS E INSIGHTS ============
+
+        calcularSemanasRestantes() {
+            // Conta quantas semanas ainda não têm captação registrada
+            let semanasComDados = 0;
+            this.semanas.forEach(semana => {
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                if (captacao > 0) {
+                    semanasComDados++;
+                }
+            });
+
+            const semanasRestantes = 5 - semanasComDados;
+            return semanasRestantes > 0 ? semanasRestantes : 1; // Mínimo 1 semana
+        },
+
+        calcularCaptacaoSemanalNecessaria() {
+            // Calcula quanto precisa captar por semana para atingir a meta
+            const metaPessoal = this.converterMoedaParaFloat(this.metas.meta_captacao_pessoal);
+            const captacaoAtual = this.metricas.total_captacao || 0;
+            const faltaCaptar = metaPessoal - captacaoAtual;
+            const semanasRestantes = this.calcularSemanasRestantes();
+
+            if (faltaCaptar <= 0) {
+                return 0; // Meta já atingida
+            }
+
+            return faltaCaptar / semanasRestantes;
+        },
+
+        calcularForecastTotal() {
+            // Calcula o forecast total do mês: captação + forecast - churn
+            let totalForecast = 0;
+
+            this.semanas.forEach(semana => {
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                const forecast = this.converterMoedaParaFloat(semana.forecast_semana);
+                const churn = this.converterMoedaParaFloat(semana.churn_semana);
+
+                totalForecast += (captacao + forecast - churn);
+            });
+
+            return totalForecast;
+        },
+
+        avaliarRitmo() {
+            // Avalia se o ritmo de captação está adequado
+            const percMeta = this.metricas.perc_meta_pessoal || 0;
+
+            // Calcula em qual semana estamos (aproximadamente)
+            let semanasComDados = 0;
+            this.semanas.forEach(semana => {
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                if (captacao > 0) {
+                    semanasComDados++;
+                }
+            });
+
+            // Se não tem dados ainda, retorna neutro
+            if (semanasComDados === 0) {
+                return 'neutro';
+            }
+
+            // Percentual esperado para o número de semanas com dados
+            const percEsperado = (semanasComDados / 5) * 100;
+
+            // Avalia o ritmo
+            if (percMeta >= percEsperado * 0.9) {
+                return 'bom'; // Está no ritmo (com 10% de tolerância)
+            } else if (percMeta >= percEsperado * 0.7) {
+                return 'atencao'; // Precisa acelerar
+            } else {
+                return 'critico'; // Muito abaixo do esperado
+            }
+        },
+
+        obterMensagemRitmo() {
+            const ritmo = this.avaliarRitmo();
+
+            if (ritmo === 'bom') {
+                return '✓ Você está no ritmo para atingir sua meta!';
+            } else if (ritmo === 'atencao') {
+                return '⚠ Atenção: acelere o ritmo de captação';
+            } else if (ritmo === 'critico') {
+                return '⚠ Crítico: ritmo muito abaixo da meta';
+            }
+
+            return '';
+        },
+
+        calcularNetFinalPrevisto() {
+            // Calcula o NET previsto ao final do mês
+            const netInicial = {{ net_total }};
+            let netAcumulado = netInicial;
+
+            // Obter crescimento orgânico anual e calcular o semanal
+            const crescimentoOrganicoAnual = parseFloat(this.metas.crescimento_organico_anual || 0);
+            const crescimentoSemanalPercent = (crescimentoOrganicoAnual / 100) / 52; // Por semana
+
+            this.semanas.forEach((semana) => {
+                const captacao = this.converterMoedaParaFloat(semana.captacao_semana);
+                const forecast = this.converterMoedaParaFloat(semana.forecast_semana);
+                const churn = this.converterMoedaParaFloat(semana.churn_semana);
+
+                // Crescimento orgânico sobre o NET atual
+                const crescimentoOrganicoSemana = netAcumulado * crescimentoSemanalPercent;
+
+                // Impacto total da semana
+                const impactoSemana = captacao + forecast - churn + crescimentoOrganicoSemana;
+                netAcumulado += impactoSemana;
+            });
+
+            return netAcumulado;
+        }
+    }
+}
+</script>
+
+<style>
+@keyframes slideOutUp {
+    from {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+    to {
+        opacity: 0;
+        transform: translate3d(0, -100%, 0);
+    }
+}
+
+/* Estilo personalizado para o range input */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);
+    transition: all 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 12px rgba(99, 102, 241, 0.4);
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);
+    transition: all 0.2s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 12px rgba(99, 102, 241, 0.4);
+}
+</style>
+{% endblock %}

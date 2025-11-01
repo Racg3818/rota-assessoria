@@ -13,6 +13,7 @@ from views.admin import admin_bp
 from views.diversificador import diversificador_bp
 from views.custodia_rf import custodia_rf_bp
 from views.ajuda import ajuda_bp
+from views.evolucao_carteira import evolucao_carteira_bp
 # 🚨 SEGURANÇA CRÍTICA: Middleware de proteção contra vazamento de dados
 from security_middleware import init_security_middleware
 
@@ -88,6 +89,7 @@ def create_app():
     app.register_blueprint(diversificador_bp)
     app.register_blueprint(custodia_rf_bp)
     app.register_blueprint(ajuda_bp)
+    app.register_blueprint(evolucao_carteira_bp)
 
     # Rota raiz para redirecionamento
     @app.route('/')
